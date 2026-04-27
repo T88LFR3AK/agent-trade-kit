@@ -1,23 +1,51 @@
-node_modules/
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# AI Assistant
+.cursor/
+.claude/
+CLAUDE.md
+
+# Build output
 dist/
-coverage/
 *.tsbuildinfo
+coverage/
+
+# Dependencies
+node_modules/
+package-lock.json
+
+# Logs
+npm-debug.log*
+
+# Environment / credentials
 .env
 .env.local
-npm-debug.log*
+
+# Internal / not for open source
+sonar-project.properties
+.gitlab-ci.yml
+scripts/smoke-test/report.md
 _tmp_*
-.cursor/
-.idea/
 scripts/smoke-test/report.md
 packages/*/scripts/postinstall.js
 packages/*/scripts/postinstall-download.js
-.claude/
-CLAUDE.md
+.claude/settings.local.json
 scripts/mcp-token-stats.ts
 .idea/
 skills-lock.json
 .agents/
+.claude/skills/
 aTempFiles/
 *.tgz
 .worktrees/
 memory/
+docs/designs/internal
+context-kg/

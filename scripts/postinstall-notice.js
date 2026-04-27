@@ -25,7 +25,7 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-// DoH binary download (best-effort, never blocks npm install)
+// Pilot binary download (best-effort, never blocks npm install)
 // ---------------------------------------------------------------------------
 
 const CDN_SOURCES = [
@@ -33,7 +33,7 @@ const CDN_SOURCES = [
   { host: 'static.okx.com',  protocol: 'https' },
   { host: 'static.coinall.ltd', protocol: 'https'  },
 ];
-const CDN_PATH_PREFIX = '/upgradeapp/tools/doh';
+const CDN_PATH_PREFIX = '/upgradeapp/tools/pilot';
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 const BIN_DIR = join(homedir(), '.okx', 'bin');
 
@@ -43,7 +43,7 @@ function getPlatformDir() {
   const map = {
     'darwin-arm64': 'darwin-arm64',
     'darwin-x64':   'darwin-x64',
-    'linux-arm64':  'linux-arm64',
+    'linux-arm64':  'linux-x64',
     'linux-x64':    'linux-x64',
     'win32-arm64':  'win32-x64',    // fallback: x64 binary via WoW64 emulation
     'win32-x64':    'win32-x64',
@@ -145,8 +145,8 @@ function verifyBinary(filePath, checksum, platformDir) {
   }
 }
 
-async function downloadDohBinary() {
-  if (process.env.OKX_DOH_BINARY_PATH) return;
+async function downloadPilotBinary() {
+  if (process.env.OKX_PILOT_BINARY_PATH) return;
 
   const platformDir = getPlatformDir();
   if (!platformDir) return;
@@ -177,7 +177,7 @@ async function downloadDohBinary() {
 
       // If local binary already matches, skip download
       if (existsSync(destPath) && verifyBinary(destPath, checksum, platformDir)) {
-        process.stderr.write('  ✓ DoH resolver up to date (checksum match)\n');
+        process.stderr.write('  ✓ Pilot up to date (checksum match)\n');
         return;
       }
 
@@ -202,17 +202,94 @@ async function downloadDohBinary() {
         chmodSync(destPath, 0o755);
       }
 
-      process.stderr.write(`  ✓ DoH resolver downloaded and verified (${host})\n`);
+      process.stderr.write(`  ✓ Pilot downloaded and verified (${host})\n`);
       return;
     } catch (err) {
       try { unlinkSync(tmpPath); } catch { /* ignore */ }
-      process.stderr.write(`  [doh] ${host} failed: ${err instanceof Error ? err.message : err}\n`);
+      process.stderr.write(`  [pilot] ${host} failed: ${err instanceof Error ? err.message : err}\n`);
     }
   }
 
-  process.stderr.write('  ⓘ DoH resolver not available (download or verification failed), using direct connection.\n');
+  process.stderr.write('  ⓘ Pilot not available (download or verification failed), using direct connection.\n');
 }
 
-downloadDohBinary().catch(() => {
+downloadPilotBinary().catch(() => {
+  // Never block npm install
+});
+
+// ---------------------------------------------------------------------------
+// okx-auth binary download (best-effort, never blocks npm install)
+// ---------------------------------------------------------------------------
+
+const AUTH_CDN_PATH_PREFIX = '/upgradeapp/tools/oauth';
+
+function getAuthBinaryName() {
+  return platform() === 'win32' ? 'okx-auth.exe' : 'okx-auth';
+}
+
+async function downloadOkxAuthBinary() {
+  if (process.env.OKX_AUTH_BIN) return;
+
+  const platformDir = getPlatformDir();
+  if (!platformDir) return;
+
+  const binaryName = getAuthBinaryName();
+  const destPath = join(BIN_DIR, binaryName);
+  const tmpPath = destPath + '.auth.tmp';
+
+  mkdirSync(BIN_DIR, { recursive: true });
+
+  const checksumPath = `${AUTH_CDN_PATH_PREFIX}/${platformDir}/checksum.json`;
+  const binaryPath = `${AUTH_CDN_PATH_PREFIX}/${platformDir}/${binaryName}`;
+
+  for (const { host, protocol } of CDN_SOURCES) {
+    try {
+      const checksumUrl = `${protocol}://${host}${checksumPath}`;
+      const raw = await downloadText(checksumUrl, DOWNLOAD_TIMEOUT_MS);
+      const checksum = JSON.parse(raw);
+
+      if (!checksum.sha256 || !checksum.size || !checksum.target) {
+        throw new Error('Invalid checksum.json: missing sha256, size, or target');
+      }
+
+      if (checksum.target !== platformDir) {
+        throw new Error(`Target mismatch: expected ${platformDir}, got ${checksum.target}`);
+      }
+
+      if (existsSync(destPath) && verifyBinary(destPath, checksum, platformDir)) {
+        process.stderr.write('  ✓ okx-auth up to date (checksum match)\n');
+        return;
+      }
+
+      const binaryUrl = `${protocol}://${host}${binaryPath}`;
+      await download(binaryUrl, tmpPath, DOWNLOAD_TIMEOUT_MS);
+
+      const actual = hashFile(tmpPath);
+      if (actual.size !== checksum.size) {
+        throw new Error(`Size mismatch: expected ${checksum.size}, got ${actual.size}`);
+      }
+      if (actual.sha256 !== checksum.sha256) {
+        throw new Error(`SHA-256 mismatch: expected ${checksum.sha256}, got ${actual.sha256}`);
+      }
+
+      try { unlinkSync(destPath); } catch { /* ignore */ }
+      renameSync(tmpPath, destPath);
+
+      if (platform() !== 'win32') {
+        chmodSync(destPath, 0o755);
+      }
+
+      process.stderr.write(`  ✓ okx-auth downloaded and verified (${host})\n`);
+      return;
+    } catch (err) {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+      process.stderr.write(`  [okx-auth] ${host} failed: ${err instanceof Error ? err.message : err}\n`);
+    }
+  }
+
+  process.stderr.write('  ⓘ okx-auth not available (download failed). Set OKX_AUTH_BIN to provide a custom path, or re-run npm install to retry.\n');
+}
+
+downloadOkxAuthBinary().catch(() => {
   // Never block npm install
 });

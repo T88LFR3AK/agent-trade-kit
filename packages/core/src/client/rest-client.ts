@@ -1,13 +1,15 @@
 import { ProxyAgent } from "undici";
-import { DohManager } from "../doh/manager.js";
+import { PilotManager } from "../pilot/manager.js";
 import { getNow, signOkxPayload } from "../utils/signature.js";
 import {
   AuthenticationError,
   ConfigError,
   NetworkError,
+  NotLoggedInError,
   OkxApiError,
   RateLimitError,
 } from "../utils/errors.js";
+import { execAuthToken } from "../auth/binary.js";
 
 type CodeBehavior =
   | { retry: true; suggestion: string }
@@ -101,6 +103,11 @@ function maskKey(key: string): string {
   return `${key.slice(0, 3)}***${key.slice(-3)}`;
 }
 
+/** JS-side cache TTL for OAuth tokens (ms). The okx-auth binary handles
+ *  refresh internally (300s TTL lead); we re-call it every 60s so it
+ *  can serve a fresh token when needed. */
+const TOKEN_CACHE_TTL_MS = 60_000;
+
 function vlog(message: string): void {
   process.stderr.write(`[verbose] ${message}\n`);
 }
@@ -109,7 +116,9 @@ export class OkxRestClient {
   private readonly config: OkxConfig;
   private readonly rateLimiter: RateLimiter;
   private readonly dispatcher?: ProxyAgent;
-  private readonly doh: DohManager;
+  private cachedAccessToken?: string;
+  private cachedAccessTokenAt = 0;
+  private readonly pilot: PilotManager;
 
   public constructor(config: OkxConfig) {
     this.config = config;
@@ -117,12 +126,67 @@ export class OkxRestClient {
     if (config.proxyUrl) {
       this.dispatcher = new ProxyAgent(config.proxyUrl);
     }
-    this.doh = new DohManager({
+    this.pilot = new PilotManager({
       baseUrl: config.baseUrl,
       packageUserAgent: config.userAgent,
       verbose: config.verbose,
       hasCustomProxy: !!config.proxyUrl,
     });
+  }
+
+  /**
+   * Resolve OAuth access token via the okx-auth binary (fd3 pipe).
+   * Caches the token for 60 s to avoid spawning the binary on every
+   * request. The binary handles refresh internally (300s TTL lead),
+   * so periodic re-calls let it serve a fresh token when needed.
+   * Returns null when not logged in.
+   */
+  private async resolveAccessToken(): Promise<string | null> {
+    if (this.cachedAccessToken && Date.now() - this.cachedAccessTokenAt < TOKEN_CACHE_TTL_MS) {
+      return this.cachedAccessToken;
+    }
+
+    try {
+      const token = await execAuthToken();
+      this.cachedAccessToken = token;
+      this.cachedAccessTokenAt = Date.now();
+      return token;
+    } catch (e) {
+      if (e instanceof NotLoggedInError) {
+        return null;
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Dynamic auth — determines auth method per request.
+   *
+   * 1. API key in config → HMAC signing (no OAuth fallback)
+   * 2. OAuth token via okx-auth binary → Bearer token
+   * 3. Neither → throw ConfigError
+   */
+  private async applyAuth(
+    headers: Headers, method: string, requestPath: string, bodyJson: string, timestamp: string,
+  ): Promise<void> {
+    // 1. API key exists → HMAC signing (no OAuth fallback)
+    if (this.config.apiKey && this.config.secretKey && this.config.passphrase) {
+      this.setAuthHeaders(headers, method, requestPath, bodyJson, timestamp);
+      return;
+    }
+
+    // 2. OAuth token via okx-auth binary
+    const accessToken = await this.resolveAccessToken();
+    if (accessToken) {
+      headers.set("Authorization", `Bearer ${accessToken}`);
+      return;
+    }
+
+    // 3. Neither
+    throw new ConfigError(
+      "No credentials found.",
+      "Run `okx auth login` to authenticate, or configure API key credentials.",
+    );
   }
 
   /** The canonical base URL for this client (e.g. https://www.okx.com). */
@@ -200,6 +264,7 @@ export class OkxRestClient {
     path: string,
     body?: RequestConfig["body"],
     rateLimit?: RequestConfig["rateLimit"],
+    retryOnNetworkError?: boolean,
   ): Promise<RequestResult<TData>> {
     return this.request<TData>({
       method: "POST",
@@ -207,32 +272,19 @@ export class OkxRestClient {
       auth: "private",
       body,
       rateLimit,
+      retryOnNetworkError,
     });
   }
 
   private setAuthHeaders(
     headers: Headers, method: string, requestPath: string, bodyJson: string, timestamp: string,
   ): void {
-    if (!this.config.hasAuth) {
-      throw new ConfigError(
-        "Private endpoint requires API credentials.",
-        "Configure OKX_API_KEY, OKX_SECRET_KEY and OKX_PASSPHRASE.",
-      );
-    }
-
-    if (!this.config.apiKey || !this.config.secretKey || !this.config.passphrase) {
-      throw new ConfigError(
-        "Invalid private API credentials state.",
-        "Ensure all OKX credentials are set.",
-      );
-    }
-
-    // OKX signature: timestamp + METHOD + requestPath + body
+    // Caller (applyAuth) already verified apiKey/secretKey/passphrase exist
     const payload = `${timestamp}${method.toUpperCase()}${requestPath}${bodyJson}`;
-    const signature = signOkxPayload(payload, this.config.secretKey);
-    headers.set("OK-ACCESS-KEY", this.config.apiKey);
+    const signature = signOkxPayload(payload, this.config.secretKey!);
+    headers.set("OK-ACCESS-KEY", this.config.apiKey!);
     headers.set("OK-ACCESS-SIGN", signature);
-    headers.set("OK-ACCESS-PASSPHRASE", this.config.passphrase);
+    headers.set("OK-ACCESS-PASSPHRASE", this.config.passphrase!);
     headers.set("OK-ACCESS-TIMESTAMP", timestamp);
   }
 
@@ -360,18 +412,18 @@ export class OkxRestClient {
     body?: Record<string, unknown>,
     opts?: BinaryRequestOptions,
   ): Promise<BinaryResult> {
-    this.doh.prepareDoh();
+    this.pilot.preparePilot();
 
     const maxBytes = opts?.maxBytes ?? OkxRestClient.DEFAULT_MAX_BYTES;
     const expectedCT = opts?.expectedContentType ?? "application/octet-stream";
     const bodyJson = body ? JSON.stringify(body) : "";
     const endpoint = `POST ${path}`;
-    const conn = this.doh.getConnectionParams();
+    const conn = this.pilot.getConnectionParams();
 
     this.logRequest("POST", `${conn.baseUrl}${path}`, "private");
 
     const reqConfig = { method: "POST", path, auth: "private" } as RequestConfig;
-    const headers = this.buildHeaders(reqConfig, path, bodyJson, getNow());
+    const headers = await this.buildHeaders(reqConfig, path, bodyJson, getNow());
     if (conn.userAgent) {
       headers.set("User-Agent", conn.userAgent);
     }
@@ -381,15 +433,15 @@ export class OkxRestClient {
     try {
       response = await this.fetchBinary(path, endpoint, headers, bodyJson, t0);
     } catch (error) {
-      // Refresh DoH state for subsequent requests (but never auto-retry POST)
-      this.doh.handleNetworkFailure().catch(() => {});
+      // Refresh Pilot state for subsequent requests (but never auto-retry POST)
+      try { await this.pilot.handleNetworkFailure(); } catch {}
       throw error;
     }
     const elapsed = Date.now() - t0;
     const traceId = extractTraceId(response.headers);
 
     // Network path is valid — cache direct mode if this was the first successful connection
-    this.doh.cacheDirectIfNeeded();
+    this.pilot.cacheDirectIfNeeded();
 
     if (!response.ok) {
       const text = await response.text();
@@ -421,20 +473,20 @@ export class OkxRestClient {
   /**
    * Send an unauthenticated GET request and return the raw binary response.
    * Used for pre-signed download URLs where auth is embedded in the token.
-   * Inherits proxy, timeout, DoH, and verbose capabilities from the client.
+   * Inherits proxy, timeout, Pilot, and verbose capabilities from the client.
    */
   public async publicGetBinary(
     path: string,
     query?: QueryParams,
     opts?: BinaryRequestOptions,
   ): Promise<BinaryResult> {
-    this.doh.prepareDoh();
+    this.pilot.preparePilot();
 
     const maxBytes = opts?.maxBytes ?? OkxRestClient.DEFAULT_MAX_BYTES;
     const expectedCT = opts?.expectedContentType ?? "application/octet-stream";
     const queryString = buildQueryString(query);
     const requestPath = queryString ? `${path}?${queryString}` : path;
-    const conn = this.doh.getConnectionParams();
+    const conn = this.pilot.getConnectionParams();
     const url = `${conn.baseUrl}${requestPath}`;
 
     this.logRequest("GET", url, "public");
@@ -453,13 +505,13 @@ export class OkxRestClient {
         dispatcher: this.dispatcher ?? conn.dispatcher,
       } as RequestInit);
     } catch (error) {
-      this.doh.handleNetworkFailure().catch(() => {});
+      try { await this.pilot.handleNetworkFailure(); } catch {}
       throw new NetworkError(`Failed to call OKX endpoint GET ${path}.`, `GET ${path}`, error);
     }
 
     const elapsed = Date.now() - t0;
     const traceId = extractTraceId(response.headers);
-    this.doh.cacheDirectIfNeeded();
+    this.pilot.cacheDirectIfNeeded();
 
     if (!response.ok) {
       const text = await response.text();
@@ -490,7 +542,7 @@ export class OkxRestClient {
 
   /** Execute fetch for binary endpoint, wrapping network errors. */
   private async fetchBinary(path: string, endpoint: string, headers: Headers, bodyJson: string, t0: number): Promise<Response> {
-    const conn = this.doh.getConnectionParams();
+    const conn = this.pilot.getConnectionParams();
     try {
       const fetchOptions: Record<string, unknown> = {
         method: "POST", headers, body: bodyJson || undefined,
@@ -511,20 +563,20 @@ export class OkxRestClient {
   // ---------------------------------------------------------------------------
 
   /** Build HTTP headers. reqConfig.extraHeaders must NOT contain auth keys (OK-ACCESS-*). */
-  private buildHeaders(reqConfig: RequestConfig, requestPath: string, bodyJson: string, timestamp: string): Headers {
+  private async buildHeaders(reqConfig: RequestConfig, requestPath: string, bodyJson: string, timestamp: string): Promise<Headers> {
     const headers = new Headers({
       "Content-Type": "application/json",
       Accept: "application/json",
     });
 
     // Direct connection UA (e.g. "okx-trade-mcp/1.2.9").
-    // DoH proxy requests override this with dohUserAgent in request()/privatePostBinary().
+    // Pilot proxy requests override this with pilotUserAgent in request()/privatePostBinary().
     if (this.config.userAgent) {
       headers.set("User-Agent", this.config.userAgent);
     }
 
     if (reqConfig.auth === "private") {
-      this.setAuthHeaders(headers, reqConfig.method, requestPath, bodyJson, timestamp);
+      await this.applyAuth(headers, reqConfig.method, requestPath, bodyJson, timestamp);
     }
 
     // simulatedTrading on individual requests takes precedence over config.demo.
@@ -551,7 +603,7 @@ export class OkxRestClient {
   // ---------------------------------------------------------------------------
 
   /**
-   * Handle network error during a JSON request: refresh DoH and maybe retry.
+   * Handle network error during a JSON request: refresh Pilot and maybe retry.
    * Always either returns a retry result or throws NetworkError.
    */
   private async handleRequestNetworkError<TData>(
@@ -560,17 +612,18 @@ export class OkxRestClient {
     requestPath: string,
     t0: number,
   ): Promise<RequestResult<TData>> {
-    // Network failure → refresh DoH state for subsequent requests
-    if (!this.doh.hasRetried) {
+    // Network failure → refresh Pilot state for subsequent requests
+    if (!this.pilot.hasRetried) {
       if (this.config.verbose) {
         const cause = error instanceof Error ? error.message : String(error);
-        vlog(`Network failure, refreshing DoH: ${cause}`);
+        vlog(`Network failure, refreshing Pilot: ${cause}`);
       }
-      const shouldRetry = await this.doh.handleNetworkFailure();
-      // Only auto-retry GET (safe & idempotent).
-      // POST/write requests (orders, transfers) must NOT auto-retry:
-      // DoH re-resolution takes seconds, price may have moved.
-      if (shouldRetry && reqConfig.method === "GET") {
+      const shouldRetry = await this.pilot.handleNetworkFailure();
+      // Only auto-retry GET (safe & idempotent) or POST endpoints explicitly
+      // marked retryOnNetworkError=true (idempotent ops like amend/stop bots).
+      // Regular POST/write requests (orders, transfers) must NOT auto-retry:
+      // Pilot re-resolution takes seconds, price may have moved.
+      if (shouldRetry && (reqConfig.method === "GET" || reqConfig.retryOnNetworkError)) {
         return this.request(reqConfig);
       }
     }
@@ -590,13 +643,13 @@ export class OkxRestClient {
   private async request<TData = unknown>(
     reqConfig: RequestConfig,
   ): Promise<RequestResult<TData>> {
-    this.doh.prepareDoh();
+    this.pilot.preparePilot();
 
     const queryString = buildQueryString(reqConfig.query);
     const requestPath = queryString.length > 0 ? `${reqConfig.path}?${queryString}` : reqConfig.path;
 
-    // Route: proxy_url → DoH proxy → direct
-    const conn = this.doh.getConnectionParams();
+    // Route: proxy_url → Pilot proxy → direct
+    const conn = this.pilot.getConnectionParams();
     const url = `${conn.baseUrl}${requestPath}`;
     const bodyJson = reqConfig.body ? JSON.stringify(reqConfig.body) : "";
     const timestamp = getNow();
@@ -607,7 +660,7 @@ export class OkxRestClient {
       await this.rateLimiter.consume(reqConfig.rateLimit);
     }
 
-    const headers = this.buildHeaders(reqConfig, requestPath, bodyJson, timestamp);
+    const headers = await this.buildHeaders(reqConfig, requestPath, bodyJson, timestamp);
     if (conn.userAgent) {
       headers.set("User-Agent", conn.userAgent);
     }
@@ -631,7 +684,7 @@ export class OkxRestClient {
     const elapsed = Date.now() - t0;
     const traceId = extractTraceId(response.headers);
 
-    this.doh.cacheDirectIfNeeded();
+    this.pilot.cacheDirectIfNeeded();
 
     return this.processResponse<TData>(rawText, response, elapsed, traceId, reqConfig, requestPath);
   }

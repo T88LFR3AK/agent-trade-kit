@@ -27,7 +27,7 @@ export const OKX_SITES = {
   },
   us: {
     label: "US",
-    apiBaseUrl: "https://app.okx.com",
+    apiBaseUrl: "https://us.okx.com",
     webUrl: "https://app.okx.com",
   },
 } as const satisfies Record<string, OkxSite>;
@@ -63,6 +63,7 @@ export const MODULES = [
   "account",
   "event",
   "news",
+  "smartmoney",
   ...EARN_SUB_MODULE_IDS,
   ...BOT_SUB_MODULE_IDS,
   "skills",
@@ -88,7 +89,7 @@ export type CliModuleKey =
   | "bot"
   | "config"
   | "setup"
-  | "doh"
+  | "pilot"
   | "diagnose"
   | "upgrade"
   | "skill";
@@ -111,12 +112,13 @@ export const MODULE_DESCRIPTIONS: Record<CliModuleKey, string> = {
   "bot.grid":      "Grid trading bot — create, monitor, and stop grid orders",
   "bot.dca":       "DCA (Martingale) bot — spot or contract recurring buys",
   news:            "Crypto news, sentiment analysis, and coin trend tracking",
+  smartmoney:      "Smart money signals — trader leaderboard, consensus signals, and position analysis",
   skills:          SKILLS_MARKETPLACE_DESC,
   earn:            "Earn products — Simple Earn, On-chain Earn, DCD, Flash Earn, and Auto-Earn",
   bot:             "Trading bot strategies (grid, dca)",
   config:          "Manage CLI configuration profiles",
   setup:           "Set up client integrations (Cursor, Windsurf, Claude, etc.)",
-  doh:             "Manage DoH (DNS-over-HTTPS) resolver binary",
+  pilot:           "Manage Pilot proxy resolver binary",
   diagnose:        "Run network / MCP server diagnostics",
   upgrade:         "Upgrade okx CLI and MCP server to the latest stable version",
   skill:           SKILLS_MARKETPLACE_DESC,

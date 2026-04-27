@@ -9,7 +9,121 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [1.3.2] - 2026-04-27
+
+### Changed
+
+- **`skills/okx-cex-auth/SKILL.md` — strict display templates + wait-for-signal flow**:
+  - Login initiation: upgraded from "example reply format" to strict CN/EN templates with four mandatory fields (`site`, `verificationUri`, `userCode`, `expiresIn`). Template wording is now normative — agents must not abbreviate, reword, reorder, or translate.
+  - Polling removed: agents no longer auto-poll `okx auth status --json` every 5–10 s. They now wait for the user to signal completion (e.g. "done", "好了"), then run `auth status --json` once to verify.
+  - Login success display: restricted to `site` + `scopes` only. Explicit negative list forbids surfacing `expiresAt` / `ttl` (these are access-token TTL, not OAuth session lifetime — tokens auto-refresh transparently) and `profile` (internal routing field). If asked about session longevity, agents must use the fixed phrase "Session stays active as long as you use the CLI periodically." and never quote a number.
+  - Cross-section consistency: Step 0.3 table and Login Status Check table updated to reference the new strict templates and wait-for-signal semantics.
+
+### Fixed
+
+- **`suggestSubcommand` no longer hallucinate non-existent subcommand paths** (issue #179). Previously, the `x-y → y x` heuristic in `packages/cli/src/unknown-command.ts` would suggest `"<b> <a>"` whenever `b` appeared in the module's `knownActions` list, without verifying that the combined path actually exists. For example, `okx swap set-leverage` suggested `okx swap leverage set`, which is not a registered subcommand. Fix: `suggestSubcommand` now accepts a `knownPaths: readonly string[]` parameter and only returns the suggestion when the combined path is explicitly listed. The legitimate `place-algo → algo place` positive case (#173) is preserved — callers pass `["algo place", "algo cancel", ...]` as `knownPaths`. Modules without multi-token subcommand paths default to `[]`, suppressing spurious suggestions entirely.
+- **Codex CLI blocked from loading `okx-cex-trade` skill** — description field exceeded the 1024-char Codex limit (was 1448 chars). Trimmed by deduping synonymous trigger phrases; all concrete trade-type triggers preserved. Pre-emptively trimmed `okx-sentiment-tracker` (944 → 652 chars) and `okx-cex-market` (887 → 706 chars) for headroom. Added CI test `packages/cli/test/skill-description-length.test.ts` to enforce the 1024-char ceiling going forward.
+
+## [1.3.2-beta.4] - 2026-04-24
+
+### Added
+
+- **OAuth Bearer token authentication (`okx auth`)**: New authentication method via the `okx-auth` Rust binary. Supports OAuth 2.1 device flow — `okx auth login` initiates browser-based login, `okx auth status` shows session state, `okx auth logout` revokes tokens. The binary handles token storage, refresh (300 s TTL lead), and scrypt + AES-256-GCM encryption. Tokens are read via fd3 pipe at request time with a 60 s JS-side cache. Auth mode is selected dynamically per request: API key HMAC (if configured) takes priority; OAuth Bearer token is used as fallback.
+- **`okx auth install/install-status/remove` CLI commands**: Manage the `okx-auth` binary installation. CDN download with checksum verification, atomic replacement, and multi-source fallback — mirrors the DoH installer pattern.
+- **`skills/okx-cex-auth/SKILL.md`**: New skill documentation for OAuth authentication workflows.
+- **`postinstall` auto-download for okx-auth binary**: Best-effort download alongside the existing DoH binary during `npm install`.
+- **`context-kg/` knowledge base**: Added `technical/06-oauth-authentication.md` covering OAuth subsystem architecture, binary distribution, fd3 token retrieval, auth priority, and CLI commands.
+
+### Changed
+
+- **`loadConfig()` is now async** (returns `Promise<OkxConfig>`): Startup now calls `execAuthStatus()` to detect OAuth login state.
+- **`OkxConfig` requires `profile` field**: Resolved profile name is now included for OAuth token storage path resolution.
+- **`OkxRestClient.buildHeaders()` is now async**: Supports dynamic auth method selection (API key HMAC or OAuth Bearer token) at request time.
+- **`PLATFORM_MAP["linux-arm64"]` now maps to `linux-x64`** (`packages/core/src/pilot/installer.ts`). This matches the standard Docker Desktop test environment on Apple Silicon, where containers run under `linux/amd64` emulation. Native `linux-arm64` hosts will therefore install the `linux-x64` binary and rely on the host's binfmt / emulation layer. This is a deliberate alias, not a regression of the issue #166 fix — the entry is still present, just pointing at the x64 directory. A native `linux-arm64` CDN directory is tracked as future work.
+
+### Fixed
+
+- **`okx auth login` now refuses to start OAuth when API-key credentials are already configured.** Previously, `cmdAuthLogin` always spawned the `okx-auth` binary regardless of `~/.okx/config.toml` state. An agent following older guidance could start an OAuth device flow on a machine whose API-key profile was already good, producing a confusing login prompt and a URL/code the user did not need. `cmdAuthLogin` now calls `readFullConfig()` first: if any profile has a non-empty `api_key`, it prints `"API key already configured (profile: <name>). OAuth login skipped — API key will be used automatically."` and returns exit 0 without spawning the binary. In `--manual` mode the same outcome is encoded as JSON `{"status":"skipped","reason":"api_key_configured","profile":"<name>","message":"..."}` so agents can detect it programmatically. This belt-and-suspenders with the REST client's existing API-key preference (`rest-client.ts applyAuth` — API key is checked first and never falls back to OAuth).
+
+- **`skills/okx-cex-auth/SKILL.md` pre-flight decision tree rewritten** to match the three-step flow: (1) check whether any `site` has been selected (union of `config show --json` profiles and `auth status --json`), and if not, present the site menu in chat verbatim before any login attempt; (2) check `api_key` — stop if present; (3) only then proceed to OAuth with the chosen `--site`. Previously the tree offered "First-Time Setup **or** Login Flow" as interchangeable paths for the "no credential" case, which let the model skip site selection and fall back to the OAuth binary's default (`global`). Also corrected the false claim that `okx config init` "handles site selection and OAuth login in one flow" — `cmdConfigInit` is an API-key wizard (site + demo/live + AK/SK/PP) and never performs OAuth. A new **Step 0.2.a** section was added for the invalid-API-key case: when an API-key profile exists but the API call returns `401 Unauthorized` / `Invalid Sign`, OAuth login is **not** a valid remediation (the REST client still prefers the broken API key; any OAuth token obtained afterwards would go unused). The agent must present exactly two neutral options — replace the API key, or remove the broken profile before starting OAuth — and let the user choose. This prevents the Haiku 4.5 failure mode observed in openclaw where the agent silently labelled OAuth as "recommended" even though OAuth could not have worked without first clearing the broken profile.
+
+- **`skills/_shared/preflight.md` and `skills/okx-cex-portfolio/SKILL.md` auth-method detection corrected.** Both files previously used the `apiKey` field from `okx auth status --json` to branch between API-key and OAuth mode. That field reports the `okx-auth` binary's internal state and is **always** `false` regardless of whether `~/.okx/config.toml` contains an API-key profile; it cannot detect API-key users. Consequence: an agent following the old preflight would see `apiKey: false, status: not_logged_in`, conclude "no auth", and route the user into the OAuth login skill — even when a valid API-key profile already existed. Both files now require running **both** `okx config show --json` (authoritative for API-key presence) and `okx auth status --json` (authoritative for OAuth session state), with a decision table that checks API-key first and never relies on the unreliable `apiKey` status field.
+
+- **`skills/okx-cex-trade/SKILL.md`, `skills/okx-cex-bot/SKILL.md`, `skills/okx-cex-earn/SKILL.md` Step A auth detection corrected.** Same class of bug as the preflight/portfolio fix above: the three skills' credential checks branched on `auth status --json` → `apiKey` (always `false`), so API-key users were misrouted into the OAuth login skill. Step A now runs both `okx config show --json` and `okx auth status --json`, checks API-key presence first, and only falls through to OAuth when no API-key profile is configured.
+
+## [1.3.2-beta.3] - 2026-04-23
+
+### Fixed
+
+- **`event_get_orders` / `event_get_fills` returning empty arrays** — root cause: for EVENTS instType, `/api/v5/trade/fills` (3-day window) often returns empty while `/api/v5/trade/fills-history` (3-month) contains the data. The wrapper lacked `archive` mode and other query parameters. Added `archive` mode for fills, `status` (open/history/archive) routing for orders, time-range filters (`begin`/`end`), cursor pagination (`after`/`before`), and `ordId` filter. Also confirmed that `instFamily` is NOT supported for EVENTS on trade endpoints (causes HTTP 400). Response now includes `requestParams` for debugging.
+
+### Changed
+
+- **`smartmoney` description cleanup.** MCP / CLI / skill now consistently use "instId takes precedence if both set". Pool-filter descriptions keep enums / defaults / key semantics (`PNL_TOP20` = top 20 %, `period` = win-rate window only) but drop verbose prose; tool descriptions now state ts-or-dataVersion requirement up front. Docs only, no runtime change.
+
+## [1.3.2-beta.2] - 2026-04-23
+
+### Changed
+
+- **`smartmoney signal` / `smartmoney_get_signal`: document `--instId` as recommended; `--instCcy` may return empty.** The `/api/v5/journal/smartmoney/signal` endpoint accepts `instCcy` per spec but in practice may return `data: []` even when the same `instCcy` works on `/overview`. Tool description, CLI reference, and API doc now steer callers to `--instId` (e.g. `BTC-USDT-SWAP`) for reliable single-currency signals. No code change — `instCcy` is still passed through.
+
+- **`okx doh` command replaced by `okx pilot`** (issue #169). The `doh` CLI module is removed and replaced by `pilot` (`okx pilot status/install/remove`). Running `okx doh` will now report an unknown command.
+
+- **CDN path unified: both `installer.ts` and `postinstall-notice.js` now use `/upgradeapp/tools/pilot`** (issue #169). Previously the two files were out of sync — `installer.ts` used `/upgradeapp/doh` while `postinstall-notice.js` was already at `/upgradeapp/tools/doh`. Both now converge on `/upgradeapp/tools/pilot`. The old paths are no longer valid.
+
+#### BREAKING CHANGES
+
+- **`OKX_DOH_BINARY_PATH` environment variable renamed to `OKX_PILOT_BINARY_PATH`**. No backward-compatible shim is provided. Update any scripts or shell profiles that set this variable.
+
+- **`OKX_DOH_CACHE_PATH` environment variable renamed to `OKX_PILOT_CACHE_PATH`**. No backward-compatible shim is provided. Update any scripts or shell profiles that set this variable.
+
+- **Cache file `~/.okx/doh-cache.json` replaced by `~/.okx/pilot-cache.json`**. The old file is now obsolete and can be safely deleted (`rm ~/.okx/doh-cache.json`). The new cache will be populated automatically on the next request.
+
+- **`okx doh` command removed, replaced by `okx pilot`**. All three subcommands are available as `okx pilot status`, `okx pilot install`, `okx pilot remove`.
+
+### Fixed
+
+- **`okx market oi-history` table rendering fixed — no longer prints "No OI data" when data exists**. The API returns `data` as an array `[{ instId, bar, rows: [...] }]`, but the CLI was accessing `data["rows"]` directly on the array, which yielded `undefined` and always fell into the empty-data branch. The handler now unwraps `data[0]` before reading `rows`/`instId`/`bar`. `--json` mode was unaffected and keeps its current output. Unit tests updated to mirror the real array-wrapped API shape so this class of bug cannot recur silently.
+
+- **`linux-arm64` platform now included in Pilot binary installer** (issue #166). `getPlatformDir()` was missing an entry for `"linux-arm64"`, causing install/update to fall back to `undefined` and write the binary to the wrong path on ARM64 Linux hosts. The entry `"linux-arm64": "linux-arm64"` is now present.
+
+- **Pilot proxy re-resolution is now `await`-ed before continuing on network failure** (issue #166). Two call sites in `rest-client.ts` invoked `handleNetworkFailure()` as fire-and-forget (`handleNetworkFailure().catch(() => {})`), meaning the cache write and proxy state update could race with the retry request. Both sites now use `try { await this.pilot.handleNetworkFailure(); } catch {}`, ensuring the proxy node is fully resolved and the cache is persisted before the retry is issued.
+
+- **`market` dispatcher: `orderbook`, `candles`, `trades`, `funding-rate` no longer emit spurious `Unknown market command` error and exit 1** (issue #175, regression introduced by commit `9fd4717` on 2026-04-14). The `handleMarketFilterCommand` refactor in that commit left an `errorLine + exitCode=1` block at its tail. Because `handleMarketPublicCommand` unconditionally tail-calls `handleMarketFilterCommand` as its fallback, the error fired before `handleMarketDataCommand` had a chance to dispatch the action — all four subcommands produced correct JSON on stdout but also wrote an error to stderr and exited 1, causing `set -e` scripts to hard-fail even though the underlying API call succeeded. Fix: removed the side-effect block from `handleMarketFilterCommand` (it now returns `undefined` silently on no match, consistent with every other sub-handler), and added `unknownSubcommand("market", action, [...])` in `handleMarketCommand` after both sub-dispatchers return `undefined` — the same pattern used by `swap`, `spot`, `futures`, `option`, `account`, and `bot` post-#173. Truly unknown market actions (e.g. `okx market foo`) continue to error with the structured diagnostic from `unknownSubcommand()` and exit 1.
+
+- **`account_get_asset_balance` total asset valuation now defaults to USDT denomination** (issue #174). Previously, `showValuation=true` called `/api/v5/asset/asset-valuation` with no `ccy` parameter, causing OKX to default to BTC — a user with $3,834 in assets would see `0.049` instead of `3834`. A new `valuationCcy` parameter (default `"USDT"`) is now passed to the valuation endpoint. Callers can override to any OKX-supported currency (e.g. `valuationCcy="BTC"`). The chosen denomination is stamped as `valuationCcy` in the returned JSON. CLI: `okx account asset-balance --valuation` now shows USDT-denominated totals by default; use `--valuationCcy BTC` for BTC-denominated totals.
+
+- **CLI no longer silently exits 0 on unknown subcommands** (issue #173). Previously, every second-level module dispatcher (`swap`, `spot`, `futures`, `option`, `account`, `bot`) fell through to `return undefined` when the action name didn't match any registered branch, producing an invisible failure — `okx swap place-algo` would exit 0 with no output, misleading scripts with `&& echo OK` and masking the real problem. Each dispatcher now calls the shared `unknownSubcommand()` helper which emits `Unknown command: okx <mod> <action>` to stderr, lists the available subcommands, suggests an MCP-name-to-CLI rewrite when applicable (`place-algo` → `algo place`), and sets a non-zero exit code. Reported via CS Telegram 2026-04-21 — customer's `okx --profile demo swap place-algo ...` returned silently, leaving them unable to tell whether the feature was broken or the command wrong.
+
+- **`skills/okx-cex-trade/` reference docs now call out the CLI↔MCP naming mismatch.** `SKILL.md` has a top-level note; `references/swap-commands.md` has a dedicated "Naming — CLI vs MCP tool" table mapping each tool identifier to its CLI subcommand path. Motivated by the same #173 report: customers see `swap_place_algo_order` in MCP tool listings and guess the CLI form is `swap place-algo`, which silently failed pre-fix and now errors explicitly.
+
+## [1.3.2-beta.1] - 2026-04-21
+
+### Added
+
+- **`spot_set_leverage` MCP tool and `okx spot leverage` CLI command**: Set the leverage ratio for a spot margin or cross-margin instrument. Accepts `--instId` (instrument-level) or `--ccy` (currency-level) alongside `--lever` and `--mgnMode`. Input is validated before the HTTP call — non-numeric, zero, or negative `lever` values are rejected immediately with an actionable error. Supports all 5 OKX leverage scenarios for SPOT/MARGIN.
+
+- **Smart Money module** (`smartmoney`): 5 new read-only MCP tools (`smartmoney_get_overview`, `smartmoney_get_signal`, `smartmoney_get_signal_history`, `smartmoney_get_traders`, `smartmoney_get_trader_detail`) and corresponding CLI commands for accessing trader leaderboard, position analysis, and smart money signals.
+
+- **`context-kg/` upstream API specs**: Three new business-domain reference docs under `context-kg/business/` capturing upstream OKX API contracts consumed by the repo — `06-leaderboard-smartmoney-api.md` (7 leaderboard / smart-money endpoints backing issue #94, with live-probe status and field-drift notes), `07-dcd-api.md` (8 DCD structured-product endpoints with state machine and error codes), `08-dca-api.md` (19 Spot/Contract DCA bot endpoints with sync-copy restrictions). Intended as the source of truth for cross-checking tool design, request/response shapes, and enum values during implementation.
+- **`grid_amend_order` MCP tool and `okx bot grid amend` CLI command** — Amend a running grid bot without stopping it. Supports three modes combinable in a single call: price-range mode (`maxPx`+`minPx`+`gridNum`) to adjust the upper/lower boundary and grid count; TP/SL mode (`instId` + any of `tpTriggerPx`/`slTriggerPx`/`tpRatio`/`slRatio`) to set or clear take-profit/stop-loss; and combined mode for both at once. Pass `"-1"` to explicitly clear an existing TP or SL. CLI: `okx bot grid amend --algoId <id> [--maxPx ..] [--minPx ..] [--gridNum ..] [--instId ..] [--tpTriggerPx ..] [--slTriggerPx ..]`.
+
+#### Breaking Changes
+
+- **`grid_stop_order` MCP tool: `stopType` values `"3"`, `"5"`, and `"6"` explicitly removed** (ALGO-37613) — These values are no longer valid for grid bot stop operations and must not be used. The valid set is now `["1","2"]` only: `"1"` closes all positions immediately (default clean exit), `"2"` stops the strategy without selling. Callers passing `"3"`, `"5"`, or `"6"` will fail schema validation. **Migration**: replace any usage of `"3"/"5"/"6"` with `"1"` (immediate close) or `"2"` (keep positions) based on the desired exit behaviour.
+
+### Fixed
+
+- **`swap_set_leverage` / `futures_set_leverage` input validation**: Invalid `lever` values (non-numeric, zero, negative) are now rejected before the HTTP call with a clear error message instead of surfacing an opaque OKX 51xxx error. `mgnMode` and `posSide` are validated against allowed enums. The `cross` + `long`/`short` combination is explicitly blocked with the hint "posSide only valid with isolated margin mode", matching OKX's business rule and reducing the ~9.7% failure rate from callers sending invalid combinations. Tool descriptions are rewritten to enumerate the three applicable SWAP/FUTURES scenarios (cross index-level / isolated one-way / isolated hedge) and explicitly flag portfolio-margin cross as unsupported.
+
+### Changed
+
+- Smart Money signal API paths changed: `/api/v5/journal/public/smartmoney/*` → `/api/v5/journal/smartmoney/*` to align with upstream OKX endpoint (4.1 signal, 4.2 signal-history, 4.3 overview).
+- Removed demo-mode guard from Smart Money module — all 5 tools now work in both live and simulated trading mode. Previously they threw `ConfigError` in demo mode.
+
+- **News CLI `--importance` default switched to `low`** for `okx news latest`, `okx news by-coin`, and `okx news search`. Previously these commands forwarded `undefined` to the server, which applies its `high`-only default and silently narrowed results. They now default to `low` (returns all news, both high and low importance) for broader browsing. Pass `--importance high` explicitly — or use the dedicated `okx news important` command — when you only want breaking / major news. MCP `news_get_latest` / `news_get_by_coin` / `news_search` tool descriptions updated to reflect the same semantics so AI agents pick `low` for broad queries and `high` only when the user explicitly asks for major news.
+
+- **News skill: time-window handling for `--platform` queries**. The API's default `--begin` window is 72 hours, too narrow for bursty news sources and a frequent cause of empty results. `okx-sentiment-tracker` Source-Filtered News and Empty Results fallback sections now instruct agents to broaden `--begin` to 7 then 30 days before concluding a source has no data. The Known Limitations "Source Coverage" table that hardcoded per-platform activity labels was removed — those labels were based on the narrow 72-hour assumption and could mislead agents into giving up prematurely. Replaced with a generic rule that platform cadence is uneven and candidates should be resolved from `okx news platforms` rather than assumed.
 
 ---
 

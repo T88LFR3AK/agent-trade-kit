@@ -129,17 +129,17 @@ export const CLI_REGISTRY: CliRegistry = {
       },
       filter: {
         toolName: "market_filter",
-        usage: "okx market filter --instType <SPOT|SWAP|FUTURES> [--sortBy <field>] [--sortOrder <asc|desc>] [--limit <n>] [--baseCcy <ccy>] [--quoteCcy <ccy>] [--settleCcy <ccy>] [--instFamily <fam>] [--ctType <linear|inverse>] [--minLast <n>] [--maxLast <n>] [--minChg24hPct <n>] [--maxChg24hPct <n>] [--minMarketCapUsd <n>] [--maxMarketCapUsd <n>] [--minVolUsd24h <n>] [--maxVolUsd24h <n>] [--minFundingRate <n>] [--maxFundingRate <n>] [--minOiUsd <n>] [--maxOiUsd <n>]",
-        description: "Screen / rank instruments by multi-dimensional criteria (price, volume, OI, funding rate, market cap, etc.)",
+        usage: "okx market filter --instType <SPOT|SWAP|FUTURES> [--sortBy <last|chg24hPct|marketCapUsd|volUsd24h|fundingRate|oiUsd|listTime>] [--sortOrder <asc|desc>] [--limit <1-100>] [--baseCcy <ccy>] [--quoteCcy <ccy>] [--settleCcy <ccy>] [--instFamily <fam>] [--ctType <linear|inverse>] [--minLast <n>] [--maxLast <n>] [--minChg24hPct <n>] [--maxChg24hPct <n>] [--minMarketCapUsd <n>] [--maxMarketCapUsd <n>] [--minVolUsd24h <n>] [--maxVolUsd24h <n>] [--minFundingRate <n>] [--maxFundingRate <n>] [--minOiUsd <n>] [--maxOiUsd <n>]",
+        description: "Screen / rank instruments by multi-dimensional criteria (price, volume, OI, funding rate, market cap, etc.). For OI *change* ranking use `market oi-change`.",
       },
       "oi-history": {
         toolName: "market_get_oi_history",
-        usage: "okx market oi-history <instId> [--bar <5m|15m|1H|4H|1D>] [--limit <n>] [--ts <ms>]",
+        usage: "okx market oi-history <instId> [--bar <5m|15m|1H|4H|1D>] [--limit <1-500>] [--ts <ms>]",
         description: "Open interest history time series with bar-over-bar delta for a single instrument",
       },
       "oi-change": {
         toolName: "market_filter_oi_change",
-        usage: "okx market oi-change --instType <SWAP|FUTURES> [--bar <5m|15m|1H|4H|1D>] [--sortBy <field>] [--sortOrder <asc|desc>] [--limit <n>] [--minOiUsd <n>] [--minVolUsd24h <n>] [--minAbsOiDeltaPct <n>]",
+        usage: "okx market oi-change --instType <SWAP|FUTURES> [--bar <5m|15m|1H|4H|1D>] [--sortBy <oiUsd|oiDeltaUsd|oiDeltaPct|absOiDeltaPct|volUsd24h|fundingRate|last>] [--sortOrder <asc|desc>] [--limit <1-100>] [--minOiUsd <n>] [--minVolUsd24h <n>] [--minAbsOiDeltaPct <n>]",
         description: "Find instruments with largest OI changes over a bar window (accumulation/distribution scanner)",
       },
     },
@@ -152,10 +152,10 @@ export const CLI_REGISTRY: CliRegistry = {
             usage: "okx market indicator list",
             description: "List all supported technical indicators",
           },
-          "<instId> <indicator>": {
+          "<indicator> <instId>": {
             toolName: "market_get_indicator",
-            usage: "okx market indicator <instId> <indicator> [--bar <bar>] [--limit <n>] [--backtest-time <ts>] [--params <json>]",
-            description: "Get indicator values for an instrument (e.g. okx market indicator BTC-USDT-SWAP rsi)",
+            usage: "okx market indicator <indicator> <instId> [--bar <3m|5m|15m|1H|4H|12Hutc|1Dutc|3Dutc|1Wutc>] [--limit <1-100>] [--backtest-time <ts>] [--params <json>]",
+            description: "Get indicator values for an instrument (e.g. okx market indicator rsi BTC-USDT-SWAP). NOTE: 1m is not supported for indicators.",
           },
         },
       },
@@ -278,6 +278,11 @@ export const CLI_REGISTRY: CliRegistry = {
         usage: "okx spot batch --action <place|amend|cancel> --orders '<json>'",
         description: "Batch place, amend, or cancel spot orders",
       },
+      leverage: {
+        toolName: "spot_set_leverage",
+        usage: "okx spot leverage ( --instId <pair> | --ccy <ccy> ) --lever <positive-number> --mgnMode <cross|isolated>",
+        description: "Set leverage for SPOT margin. Provide instId (pair-level) OR ccy (currency-level cross, for borrow-enabled/multi-ccy/portfolio margin). When ccy is used, mgnMode must be cross.",
+      },
     },
     subgroups: {
       algo: {
@@ -360,8 +365,8 @@ export const CLI_REGISTRY: CliRegistry = {
       },
       leverage: {
         toolName: "swap_set_leverage",
-        usage: "okx swap leverage --instId <id> --lever <n> --mgnMode <cross|isolated> [--posSide <side>]",
-        description: "Set leverage for a swap instrument",
+        usage: "okx swap leverage --instId <id> --lever <positive-number> --mgnMode <cross|isolated> [--posSide <long|short>]",
+        description: "Set leverage for a swap instrument. posSide is REQUIRED when mgnMode=isolated and account is in hedge mode — must be set for BOTH long and short separately. Not supported for portfolio margin + cross.",
       },
       "get-leverage": {
         toolName: "swap_get_leverage",
@@ -460,8 +465,8 @@ export const CLI_REGISTRY: CliRegistry = {
       },
       leverage: {
         toolName: "futures_set_leverage",
-        usage: "okx futures leverage --instId <id> --lever <n> --mgnMode <cross|isolated> [--posSide <net|long|short>]",
-        description: "Set leverage for a futures instrument",
+        usage: "okx futures leverage --instId <id> --lever <positive-number> --mgnMode <cross|isolated> [--posSide <long|short>]",
+        description: "Set leverage for a futures instrument. posSide is REQUIRED when mgnMode=isolated and account is in hedge mode — must be set for BOTH long and short separately. Not supported for portfolio margin + cross.",
       },
       batch: {
         toolName: "futures_batch_orders",
@@ -774,9 +779,14 @@ export const CLI_REGISTRY: CliRegistry = {
             usage: "okx bot grid create --instId <id> --algoOrdType <grid|contract_grid> --maxPx <px> --minPx <px> --gridNum <n>\n                   [--runType <1|2>] [--quoteSz <n>] [--baseSz <n>]\n                   [--direction <long|short|neutral>] [--lever <n>] [--sz <n>] [--basePos] [--no-basePos]\n                   [--tpTriggerPx <px>] [--slTriggerPx <px>] [--tpRatio <n>] [--slRatio <n>] [--algoClOrdId <id>]",
             description: "Create a new grid bot order (contract grid opens base position by default)",
           },
+          amend: {
+            toolName: "grid_amend_order",
+            usage: "okx bot grid amend --algoId <id> --maxPx <px> --minPx <px> --gridNum <n> [--topUpAmt <n>]\n                   okx bot grid amend --algoId <id> --instId <id> [--tpTriggerPx <px>] [--slTriggerPx <px>] [--tpRatio <n>] [--slRatio <n>] [--topUpAmt <n>]",
+            description: "Amend a running grid bot. Price-range mode: provide --maxPx/--minPx/--gridNum. TP/SL mode: provide --instId and TP/SL flags.",
+          },
           stop: {
             toolName: "grid_stop_order",
-            usage: "okx bot grid stop --algoId <id> --algoOrdType <type> --instId <id> [--stopType <1|2|3|5|6>]",
+            usage: "okx bot grid stop --algoId <id> --algoOrdType <type> --instId <id> [--stopType <1|2>]",
             description: "Stop a running grid bot order",
           },
         },
@@ -855,13 +865,45 @@ export const CLI_REGISTRY: CliRegistry = {
       },
       orders: {
         toolName: "event_get_orders",
-        usage: "okx event orders [--instId <id>] [--state live] [--limit <n>] [--json]",
+        usage: "okx event orders [--status <open|history|archive>] [--instId <id>] [--ordType <type>] [--state <canceled|filled>] [--after <id>] [--before <id>] [--begin <ms>] [--end <ms>] [--limit <n>] [--json]",
         description: "Query event contract orders",
       },
       fills: {
         toolName: "event_get_fills",
-        usage: "okx event fills [--instId <id>] [--limit <n>] [--json]",
+        usage: "okx event fills [--archive] [--instId <id>] [--ordId <id>] [--after <id>] [--before <id>] [--begin <ms>] [--end <ms>] [--limit <n>] [--json]",
         description: "Get event contract fill history",
+      },
+    },
+  },
+
+  // ── smartmoney ─────────────────────────────────────────────────────────────
+  smartmoney: {
+    description: "Smart money signals — trader leaderboard, consensus signals, and position analysis",
+    commands: {
+      overview: {
+        toolName: "smartmoney_get_overview",
+        usage: "okx smartmoney overview [--ts <ms> | --dataVersion <ver>] [--instType <SWAP|SPOT>] [--sortType <pnl|pnlRatio>] [--period <3|7|30|90>] [--pnl <tier>] [--winRatio <tier>] [--maxRetreat <tier>] [--asset <tier>] [--lmtNum <n>] [--instCcyList <ccys>] [--instCcy <ccy>] [--topInstruments <n>] [--json]",
+        description: "Multi-currency smart money overview ranked by tradersWithPosition DESC (requires --ts or --dataVersion; --ts takes precedence)",
+      },
+      signal: {
+        toolName: "smartmoney_get_signal",
+        usage: "okx smartmoney signal [--instId <id>] [--instCcy <ccy>] [--ts <ms> | --dataVersion <ver>] [--sortType <pnl|pnlRatio>] [--period <3|7|30|90>] [--pnl <tier>] [--winRatio <tier>] [--maxRetreat <tier>] [--asset <tier>] [--lmtNum <n>] [--authorIds <ids>] [--json]",
+        description: "Single-currency aggregated consensus signal (requires --instId or --instCcy, and --ts or --dataVersion; --instId / --ts take precedence)",
+      },
+      "signal-history": {
+        toolName: "smartmoney_get_signal_history",
+        usage: "okx smartmoney signal-history --instId <id> [--ts <ms> | --dataVersion <ver>] [--granularity <1h|1d>] [--limit <n>] [--sortType <pnl|pnlRatio>] [--period <3|7|30|90>] [--pnl <tier>] [--winRatio <tier>] [--maxRetreat <tier>] [--asset <tier>] [--json]",
+        description: "Signal history timeline sorted by ts DESC (requires --instId and --ts/--dataVersion)",
+      },
+      traders: {
+        toolName: "smartmoney_get_traders",
+        usage: "okx smartmoney traders [--dataVersion <ts>] [--sortType <pnl|pnl_ratio>] [--period <\"\"|3|7|30|90>] [--pnl <n>] [--winRatio <r>] [--maxRetreat <r>] [--asset <n>] [--authorIds <ids>] [--limit <n>] [--after <id>] [--before <id>] [--json]",
+        description: "List/filter traders from the smart money leaderboard",
+      },
+      trader: {
+        toolName: "smartmoney_get_trader_detail",
+        usage: "okx smartmoney trader --authorId <id> [--period <3|7|30|90>] [--instCcy <ccy>] [--tradeLimit <n>] [--json]",
+        description: "Trader full portrait (profile + positions + trades)",
       },
     },
   },
@@ -899,24 +941,24 @@ export const CLI_REGISTRY: CliRegistry = {
     usage: `okx setup --client <${SUPPORTED_CLIENTS.join("|")}> [--profile <name>] [--modules <list>]`,
   },
 
-  // ── doh ────────────────────────────────────────────────────────────────────
-  doh: {
-    description: "Manage DoH (DNS-over-HTTPS) resolver binary",
+  // ── pilot ──────────────────────────────────────────────────────────────────
+  pilot: {
+    description: "Manage Pilot proxy resolver binary",
     commands: {
       status: {
         toolName: null,
-        usage: "okx doh status [--json]",
-        description: "Show DoH binary info, checksum, and CDN match status",
+        usage: "okx pilot status [--json]",
+        description: "Show Pilot binary info, checksum, and CDN match status",
       },
       install: {
         toolName: null,
-        usage: "okx doh install [--json]",
-        description: "Download or update the DoH resolver binary",
+        usage: "okx pilot install [--json]",
+        description: "Download or update the Pilot binary",
       },
       remove: {
         toolName: null,
-        usage: "okx doh remove [--force] [--json]",
-        description: "Remove the DoH resolver binary (prompts for confirmation without --force)",
+        usage: "okx pilot remove [--force] [--json]",
+        description: "Remove the Pilot binary (prompts for confirmation without --force)",
       },
     },
   },

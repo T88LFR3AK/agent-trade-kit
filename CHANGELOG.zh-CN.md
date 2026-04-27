@@ -9,7 +9,121 @@
 
 ---
 
-## [Unreleased]
+## [1.3.2] - 2026-04-27
+
+### 变更
+
+- **`skills/okx-cex-auth/SKILL.md` — 严格展示模板 + 等用户信号流程**：
+  - 登录发起：从"示例回复格式"升级为中英双语严格模板，四个必显字段（`站点` / `链接` / `验证码` / `有效期`）。模板措辞为硬约束，不得缩写、改写、调序、翻译。
+  - 取消自动轮询：不再每 5–10 秒自动轮询 `okx auth status --json`。改为等用户信号（如 "done" / "好了"），收到后跑一次 `auth status --json` 验证。
+  - 登录成功展示：仅保留 `站点` + `权限` 两个字段。显式负面清单禁止暴露 `expiresAt` / `ttl`（这是 access token TTL，不是 OAuth session 有效期，token 会自动展期，显示会误导用户以为马上过期）和 `profile`（内部路由字段）。用户询问 session 何时过期时，必须使用固定话术 "Session stays active as long as you use the CLI periodically."，禁止引用具体数字。
+  - 跨段落一致性：Step 0.3 表格与 Login Status Check 表格已同步引用新模板与等信号语义。
+
+### 修复
+
+- **`suggestSubcommand` 不再幻觉出不存在的子命令路径**（issue #179）。此前，`packages/cli/src/unknown-command.ts` 中的 `x-y → y x` 启发式规则只要 `b` 出现在模块的 `knownActions` 列表中就会建议 `"<b> <a>"`，而不验证该路径是否真实存在。例如 `okx swap set-leverage` 会建议 `okx swap leverage set`，但该子命令根本不存在。修复方案：`suggestSubcommand` 新增 `knownPaths: readonly string[]` 参数，仅当组合路径被明确列出时才返回建议。`place-algo → algo place` 的正向场景（#173）得以保留——调用方传入 `["algo place", "algo cancel", ...]` 作为 `knownPaths`。不含多词子命令路径的模块默认传 `[]`，完全屏蔽错误建议。
+- **Codex CLI 无法加载 `okx-cex-trade` skill** — description 字段超过 Codex 1024 字符上限（原为 1448 字符）。通过去重同义触发词短语精简至 1017 字符，保留全部具体交易类型触发词。同步精简 `okx-sentiment-tracker`（944 → 652 字符）和 `okx-cex-market`（887 → 706 字符）以留有余量。新增 CI 测试 `packages/cli/test/skill-description-length.test.ts`，自动检查 1024 字符上限，防止未来回归。
+
+## [1.3.2-beta.4] - 2026-04-24
+
+### 新增
+
+- **OAuth Bearer token 认证（`okx auth`）**：基于 `okx-auth` Rust 二进制的全新认证方式，支持 OAuth 2.1 Device Flow。`okx auth login` 发起浏览器登录，`okx auth status` 查看会话状态，`okx auth logout` 注销令牌。二进制负责令牌存储、刷新（300 秒提前量）及 scrypt + AES-256-GCM 加密。运行时通过 fd3 管道读取令牌，JS 侧 60 秒缓存。每次请求动态选择认证方式：API key HMAC 优先，OAuth Bearer token 兜底。
+- **`okx auth install/install-status/remove` CLI 命令**：管理 `okx-auth` 二进制安装。CDN 下载带校验和验证、原子替换及多源备用——复用 DoH installer 模式。
+- **`skills/okx-cex-auth/SKILL.md`**：新增 OAuth 认证工作流 Skill 文档。
+- **`postinstall` 自动下载 okx-auth 二进制**：`npm install` 时与 DoH 二进制一起 best-effort 下载。
+- **`context-kg/` 知识库**：新增 `technical/06-oauth-authentication.md`，覆盖 OAuth 子系统架构、二进制分发、fd3 令牌读取、认证优先级及 CLI 命令。
+
+### 变更
+
+- **`loadConfig()` 改为异步**（返回 `Promise<OkxConfig>`）：启动时调用 `execAuthStatus()` 检测 OAuth 登录状态。
+- **`OkxConfig` 新增必需字段 `profile`**：已解析的 profile 名称，用于 OAuth 令牌存储路径。
+- **`OkxRestClient.buildHeaders()` 改为异步**：支持每次请求动态选择认证方式（API key HMAC 或 OAuth Bearer token）。
+- **`PLATFORM_MAP["linux-arm64"]` 现在映射为 `linux-x64`**（`packages/core/src/pilot/installer.ts`）。这是为了匹配 Apple Silicon 上的 Docker Desktop 标准测试环境——容器在 `linux/amd64` 模拟下运行。原生 `linux-arm64` 主机将安装 `linux-x64` binary 并依赖主机的 binfmt / 模拟层。这是有意的 alias，并非 issue #166 修复的回归——条目依然存在，只是指向 x64 目录。原生 `linux-arm64` CDN 目录作为后续工作跟进。
+
+### 修复
+
+- **`okx auth login` 现在会在已有 API key 配置时拒绝启动 OAuth。** 之前 `cmdAuthLogin` 不看 `~/.okx/config.toml` 就直接 spawn `okx-auth` binary，导致 agent 按旧 skill 流程在已有 API key profile 的机器上发起 OAuth device flow，用户会拿到一个根本不需要的登录 URL + 验证码。修复后 `cmdAuthLogin` 先调 `readFullConfig()`：任一 profile 有非空 `api_key` 时打印 `"API key already configured (profile: <name>). OAuth login skipped — API key will be used automatically."` 并直接 exit 0，不再 spawn binary。`--manual` 模式下改输出 JSON `{"status":"skipped","reason":"api_key_configured","profile":"<name>","message":"..."}`，方便 agent 程序化识别。与 REST client 中既有的 "api_key 优先、从不回退 OAuth"（`rest-client.ts applyAuth`）形成双保险。
+
+- **`skills/okx-cex-auth/SKILL.md` 的 pre-flight 决策树重写**，改为严格的三步序：（1）先看有没有选过 site（`config show --json` 任一 profile 的 `site` 字段 ∪ `auth status --json` 的 `site` 字段），没选过则 agent 在对话里按固定文案弹出站点菜单让用户选，**然后**才进入任何登录分支；（2）再看有没有 `api_key`，有就停；（3）都没有才真正走 OAuth，并带上第 1 步选定的 `--site`。此前决策树把 "First-Time Setup 或 Login Flow" 当成可互换分支，模型因而可能跳过站点选择、直接让 `okx-auth` binary 兜底到 `global`。同步修正了"`okx config init` 一步搞定 site 选择 + OAuth"的错误描述——`cmdConfigInit` 是 API key 向导（site + demo/live + AK/SK/PP），不触碰 OAuth。新增 **Step 0.2.a**：当 config 里有 api_key profile 但 API 调用返回 `401 Unauthorized` / `Invalid Sign` 时，**OAuth 登录不是有效的补救**——rest-client 依然优先用那条坏掉的 api_key，拿到 OAuth token 也用不上。agent 必须中性列出两条路（换新 api_key，或先删 profile 再走 OAuth）让用户选，不许把 OAuth 标成"推荐"。修复在 openclaw 里观察到的 Haiku 4.5 错误行为：在有坏 api_key 的情况下把 OAuth 打上"推荐"标签，而实际上 OAuth 根本没法生效。
+
+- **`skills/_shared/preflight.md` 和 `skills/okx-cex-portfolio/SKILL.md` 的认证方式检测修正。** 此前两份文档都用 `okx auth status --json` 的 `apiKey` 字段来区分 API key 模式和 OAuth 模式——但这个字段反映的是 `okx-auth` binary 自身的状态，**无论 `~/.okx/config.toml` 里有没有 API key profile 永远是 `false`**，根本检测不到 API key 用户。后果：agent 按老 preflight 查出来 `apiKey: false, status: not_logged_in` 就会判成"无认证"，把已经有效配置了 API key 的用户误导到 OAuth 登录流程。修复后要求**同时**跑 `okx config show --json`（API key 的唯一可靠来源）和 `okx auth status --json`（OAuth session 状态），决策表先查 API key，不再依赖 `apiKey` 这个不可靠字段。
+
+- **`skills/okx-cex-trade/SKILL.md`、`skills/okx-cex-bot/SKILL.md`、`skills/okx-cex-earn/SKILL.md` 的 Step A 认证检测修正。** 与上一条 preflight/portfolio 修复同类问题：这三个 skill 的凭证检查都基于 `auth status --json` → `apiKey`（永远 `false`），导致 API key 用户被误导到 OAuth 登录流程。Step A 现在要求同时跑 `okx config show --json` 和 `okx auth status --json`，先查 API key 是否存在，只有在确认没有 API key profile 时才走 OAuth 分支。
+
+## [1.3.2-beta.3] - 2026-04-23
+
+### 修复
+
+- **`event_get_orders` / `event_get_fills` 返回空数组** — 根因：EVENTS 合约的 `/api/v5/trade/fills`（3 天窗口）经常返回空，而 `/api/v5/trade/fills-history`（3 个月）才有数据。wrapper 缺少 `archive` 模式和其他查询参数。已添加 fills 的 `archive` 模式、orders 的 `status`（open/history/archive）路由、时间范围过滤（`begin`/`end`）、游标分页（`after`/`before`）和 `ordId` 过滤。同时确认 `instFamily` 对 EVENTS 不支持（会导致 HTTP 400）。响应中新增 `requestParams` 字段便于调试。
+
+### 变更
+
+- **`smartmoney` 描述优化。** MCP / CLI / skill 统一为 "instId takes precedence if both set"。池过滤器描述保留枚举/默认值/关键语义（`PNL_TOP20` = 前 20%、`period` 仅胜率窗口），去掉冗长解释；各 tool 描述显式 ts-or-dataVersion 必填。仅文档变更，无运行时行为变化。
+
+## [1.3.2-beta.2] - 2026-04-23
+
+### 变更
+
+- **`smartmoney signal` / `smartmoney_get_signal`：文档推荐使用 `--instId`，`--instCcy` 可能返空。** `/api/v5/journal/smartmoney/signal` 接口按 spec 支持 `instCcy`，但实际调用时即便 `/overview` 能用同样的 `instCcy` 返回数据，`/signal` 仍可能返回 `data: []`。工具描述、CLI 参考文档和 API 文档现已引导调用方使用 `--instId`（如 `BTC-USDT-SWAP`）以获得稳定结果。未改代码，`instCcy` 仍会照常透传。
+
+- **`okx doh` 命令已替换为 `okx pilot`**（issue #169）。`doh` CLI 模块已移除，改为 `pilot`（`okx pilot status/install/remove`）。现在运行 `okx doh` 会报未知命令。
+
+- **CDN 路径统一：`installer.ts` 与 `postinstall-notice.js` 现均使用 `/upgradeapp/tools/pilot`**（issue #169）。此前两个文件不同步——`installer.ts` 使用 `/upgradeapp/doh`，而 `postinstall-notice.js` 已更新为 `/upgradeapp/tools/doh`。两者现统一指向 `/upgradeapp/tools/pilot`，旧路径已不再有效。
+
+#### 破坏性变更
+
+- **环境变量 `OKX_DOH_BINARY_PATH` 已重命名为 `OKX_PILOT_BINARY_PATH`**。不提供向后兼容的 shim。请更新所有设置了此变量的脚本或 shell 配置文件。
+
+- **环境变量 `OKX_DOH_CACHE_PATH` 已重命名为 `OKX_PILOT_CACHE_PATH`**。不提供向后兼容的 shim。请更新所有设置了此变量的脚本或 shell 配置文件。
+
+- **缓存文件 `~/.okx/doh-cache.json` 已替换为 `~/.okx/pilot-cache.json`**。旧文件已废弃，可安全删除（`rm ~/.okx/doh-cache.json`）。新缓存将在下次请求时自动生成。
+
+- **`okx doh` 命令已移除，替换为 `okx pilot`**。三个子命令均已迁移：`okx pilot status`、`okx pilot install`、`okx pilot remove`。
+
+### 修复
+
+- **`okx market oi-history` 表格渲染修复——不再在有数据时错误打印 "No OI data"**。接口返回的 `data` 是数组 `[{ instId, bar, rows: [...] }]`，但 CLI 直接在数组上访问 `data["rows"]`，结果恒为 `undefined`，永远走到"空数据"分支。现在 handler 先取 `data[0]` 再读 `rows`/`instId`/`bar`。`--json` 模式原本就不受影响，输出保持不变。单元测试同步更新为真实的数组包裹形状，防止此类 bug 在测试中被悄悄吃掉。
+
+- **Pilot 二进制安装器现已支持 `linux-arm64` 平台**（issue #166）。`getPlatformDir()` 缺少 `"linux-arm64"` 映射条目，导致 ARM64 Linux 主机安装/更新时回退到 `undefined`，将二进制写入错误路径。现已补充 `"linux-arm64": "linux-arm64"` 条目。
+
+- **网络故障时 Pilot 代理重解析现在使用 `await` 等待完成**（issue #166）。`rest-client.ts` 中有两处调用 `handleNetworkFailure()` 为 fire-and-forget（`handleNetworkFailure().catch(() => {})`），导致缓存写入和代理状态更新可能与重试请求产生竞态条件。两处现均改为 `try { await this.pilot.handleNetworkFailure(); } catch {}`，确保代理节点完全解析、缓存已持久化后再发起重试。
+
+- **`market` 分发器：`orderbook`、`candles`、`trades`、`funding-rate` 不再触发虚假的 `Unknown market command` 错误和 exit 1**（issue #175，回归来自 2026-04-14 的 commit `9fd4717`）。该次重构将过滤命令提取到 `handleMarketFilterCommand`，但在函数尾部保留了 `errorLine + exitCode=1` 的副作用代码。由于 `handleMarketPublicCommand` 无条件以 tail-call 方式调用 `handleMarketFilterCommand` 作为兜底，这段副作用会在 `handleMarketDataCommand` 有机会分发之前就触发——四个子命令的 stdout 输出正确 JSON，但同时向 stderr 写入了报错并 exit 1，导致使用 `set -e` 的脚本即便 API 调用成功也会被强制中断。修复方案：从 `handleMarketFilterCommand` 尾部移除副作用代码块（无匹配时静默返回 `undefined`，与其他所有子处理函数保持一致）；在 `handleMarketCommand` 中两个子分发器均返回 `undefined` 后调用 `unknownSubcommand("market", action, [...])`——与 #173 之后 `swap`、`spot`、`futures`、`option`、`account`、`bot` 所采用的模式完全相同。真正未知的 market 子命令（如 `okx market foo`）仍会通过 `unknownSubcommand()` 输出结构化诊断信息并 exit 1。
+
+- **`account_get_asset_balance` 总资产估值现在默认以 USDT 计价**（issue #174）。此前 `showValuation=true` 调用 `/api/v5/asset/asset-valuation` 时未传 `ccy` 参数，OKX 默认以 BTC 计价——持有 $3,834 的用户会看到 `0.049` 而非 `3834`。新增 `valuationCcy` 参数（默认 `"USDT"`），该值现在作为 `ccy` 参数传入估值接口。调用方可以覆盖为任意 OKX 支持的计价币种（例如 `valuationCcy="BTC"`）。所选计价币种同时以 `valuationCcy` 字段回写到返回 JSON 中，方便调用方判断单位。CLI：`okx account asset-balance --valuation` 现在默认显示 USDT 计价的总资产；如需 BTC 计价请用 `--valuationCcy BTC`。
+
+- **CLI 不再在遇到未知子命令时静默退出 0**（issue #173）。之前每个二级 module 分发器（`swap`、`spot`、`futures`、`option`、`account`、`bot`）在 action 名未命中任何注册分支时，会 `return undefined` 直接 fall-through——`okx swap place-algo` 直接 exit 0 无任何输出，脚本里的 `&& echo OK` 会把失败当成功，完全掩盖真实问题。现在每个分发器调用共享的 `unknownSubcommand()` helper：向 stderr 打印 `Unknown command: okx <模块> <动作>`、列出该模块可用子命令、在适配场景下建议从 MCP 名反推 CLI 形式（如 `place-algo` → `algo place`），并设置非零 exit code。线索来自 CS Telegram 2026-04-21 客户反馈——`okx --profile demo swap place-algo ...` 全静默退出，客户无法判断是功能坏了还是命令写错了。
+
+- **`skills/okx-cex-trade/` 参考文档现在显式说明 CLI ↔ MCP 命名不一致**。顶层 `SKILL.md` 加了 warning；`references/swap-commands.md` 加了专门的"Naming — CLI vs MCP tool"映射表，把每个 MCP 工具标识符和对应的 CLI 子命令路径一一列出。和上一条同一 #173 事件：客户看到 MCP 工具列表里的 `swap_place_algo_order` 就把 CLI 形式猜成 `swap place-algo`——修复前会静默失败，现在会显式报错。
+
+## [1.3.2-beta.1] - 2026-04-21
+
+### 新增
+
+- **`spot_set_leverage` MCP 工具及 `okx spot leverage` CLI 命令**：设置现货保证金或全仓杠杆倍数。支持 `--instId`（标的级别）或 `--ccy`（币种级别）与 `--lever`、`--mgnMode` 组合使用。HTTP 请求发出前进行输入验证——非数字、零值或负值的 `lever` 将立即返回可操作的错误信息。覆盖 OKX 现货/保证金全部 5 种杠杆场景。
+
+- **Smart Money 模块**（`smartmoney`）：新增 5 个只读 MCP 工具（`smartmoney_get_overview`、`smartmoney_get_signal`、`smartmoney_get_signal_history`、`smartmoney_get_traders`、`smartmoney_get_trader_detail`）及对应 CLI 命令，支持查询交易员排行榜、持仓分析和聪明钱信号。
+
+- **`context-kg/` 上游 API 规格**：在 `context-kg/business/` 新增三份业务域参考文档，记录本仓库调用的上游 OKX API 合约 —— `06-leaderboard-smartmoney-api.md`（issue #94 所需的 7 个牛人榜/聪明钱端点，含实盘探测状态和字段漂移说明）、`07-dcd-api.md`（8 个 DCD 结构化产品端点，含状态机和错误码）、`08-dca-api.md`（19 个现货/合约 DCA 机器人端点，含同步跟单限制）。用作实现阶段核对工具设计、请求/响应结构、枚举值的权威依据。
+- **`grid_amend_order` MCP 工具 及 `okx bot grid amend` CLI 命令** — 无需停止即可修改运行中的网格机器人。支持三种模式，可在同一次调用中组合使用：价格区间模式（`maxPx`+`minPx`+`gridNum`）调整上下边界和格数；止盈止损模式（`instId` + 任意 `tpTriggerPx`/`slTriggerPx`/`tpRatio`/`slRatio`）设置或清除止盈止损；组合模式同时修改两类参数。传入 `"-1"` 可明确清除已有的止盈或止损。CLI：`okx bot grid amend --algoId <id> [--maxPx ..] [--minPx ..] [--gridNum ..] [--instId ..] [--tpTriggerPx ..] [--slTriggerPx ..]`。
+
+#### 破坏性变更
+
+- **`grid_stop_order` MCP 工具：`stopType` 值 `"3"`、`"5"`、`"6"` 已明确删除**（ALGO-37613）— 这些值对网格机器人停止操作不再有效，禁止继续使用。有效集合缩减为 `["1","2"]`：`"1"` 立即平仓退出（默认），`"2"` 停止策略但不平仓。传入 `"3"`/`"5"`/`"6"` 的调用方将在 schema 校验阶段失败。**迁移方案**：根据期望的退出行为，将 `"3"/"5"/"6"` 替换为 `"1"`（立即平仓）或 `"2"`（保留持仓）。
+
+### 修复
+
+- **`swap_set_leverage` / `futures_set_leverage` 输入校验增强**：无效的 `lever` 值（非数字、零值、负值）现在在 HTTP 请求发出前即被拒绝，并返回明确的错误信息，不再透传为 OKX 51xxx 错误。`mgnMode` 和 `posSide` 字段校验已对齐允许枚举值。`cross` 与 `long`/`short` 的组合被明确拦截，提示"posSide 仅在逐仓模式下有效"，与 OKX 业务规则一致，可将约 9.7% 的无效请求失败率显著降低。工具描述已重写，枚举了 SWAP/FUTURES 的三种适用场景（全仓指数级 / 逐仓单向 / 逐仓对冲），并明确标注组合保证金全仓模式不支持。
+
+### 变更
+
+- Smart Money 信号接口路径变更：`/api/v5/journal/public/smartmoney/*` → `/api/v5/journal/smartmoney/*`，与上游 OKX 端点对齐（4.1 signal、4.2 signal-history、4.3 overview）。
+- 移除 Smart Money 模块的模拟盘限制——5 个工具现在在实盘和模拟盘模式下均可使用。此前在 demo 模式下会抛出 `ConfigError`。
+
+- **News CLI `--importance` 默认值改为 `low`**：`okx news latest`、`okx news by-coin`、`okx news search` 原先在用户未指定 `--importance` 时会透传 `undefined`，服务端按 `high` 默认只返回高重要性新闻，导致结果偏窄。现在三个命令默认使用 `low`（返回全部新闻，同时包含 high 和 low），更贴合"尽可能多"的浏览意图。用户只想看突发 / 重大新闻时，显式传 `--importance high`，或使用专门的 `okx news important` 命令。MCP `news_get_latest` / `news_get_by_coin` / `news_search` 工具描述同步更新，引导 AI 在用户泛泛浏览时使用 `low`，仅在明确要求"重要新闻"时切换到 `high`。
+
+- **News skill：优化 `--platform` 场景的时间窗口处理**。API 的 `--begin` 默认窗口只有 72 小时，对发文节奏不稳定的来源来说太窄，经常返回空结果。`okx-sentiment-tracker` 的 Source-Filtered News 与 Empty Results 降级章节现在指导 Agent：在判定某来源无数据之前，先把 `--begin` 放宽到 7 天、再放宽到 30 天重试。Known Limitations 中写死各平台活跃度的表被移除——这些判定基于 72 小时窗口假象，会误导 Agent 过早放弃。替换为通用规则：平台发文节奏不稳定，候选平台应由 `okx news platforms` 解析而非硬编码。
 
 ---
 

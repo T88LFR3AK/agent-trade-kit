@@ -6,7 +6,7 @@ export type { ToolResult, ToolRunner } from "./tools/index.js";
 export { toMcpTool } from "./tools/types.js";
 export { loadConfig } from "./config.js";
 export { MODULES, DEFAULT_MODULES, BOT_SUB_MODULE_IDS, BOT_DEFAULT_SUB_MODULES, OKX_API_BASE_URL, OKX_SITES, SITE_IDS, MODULE_DESCRIPTIONS } from "./constants.js";
-export { OkxApiError, ConfigError, toToolErrorPayload } from "./utils/errors.js";
+export { OkxApiError, ConfigError, NotLoggedInError, toToolErrorPayload } from "./utils/errors.js";
 export type { OkxConfig, CliOptions } from "./config.js";
 export type { ModuleId, BotSubModuleId, SiteId, OkxSite, CliModuleKey } from "./constants.js";
 export type { ToolSpec, ToolContext, ToolArgs } from "./tools/types.js";
@@ -33,18 +33,23 @@ export type { SkillMeta, SkillRecord, SkillRegistry, SkillSearchItem, SkillCateg
 export { safeWriteFile, validateZipEntryPath } from "./utils/safe-file.js";
 export { findDateIdx, formatDisplayTitle, inferExpiryMsFromInstId, extractSeriesId } from "./utils/event-format.js";
 export type { BinaryResult, BinaryRequestOptions } from "./client/types.js";
-export { getDohBinaryPath } from "./doh/binary.js";
+export { getPilotBinaryPath } from "./pilot/binary.js";
+export { getAuthBinaryPath, execAuthToken, execAuthStatus } from "./auth/binary.js";
+export { getAuthStatus, fetchAuthCdnChecksum, installAuthBinary, removeAuthBinary, AUTH_CDN_PATH_PREFIX } from "./auth/installer.js";
+export type { AuthLocalStatus } from "./auth/installer-types.js";
+export { ensureAuthBinaryLatest, updateAuthBinaryCache, clearAuthBinaryCache } from "./auth/update-check.js";
+export type { AuthStatusResult } from "./auth/types.js";
 export {
-  getDohStatus,
+  getPilotStatus,
   fetchCdnChecksum,
-  installDohBinary,
-  removeDohBinary,
+  installPilotBinary,
+  removePilotBinary,
   getPlatformDir,
   getBinaryName,
   hashFile,
   CDN_SOURCES,
   CDN_PATH_PREFIX,
   DOWNLOAD_TIMEOUT_MS,
-} from "./doh/installer.js";
-export type { DohLocalStatus, CdnChecksum, InstallResult, RemoveResult, CdnSource } from "./doh/installer-types.js";
-export { readCache as readDohCache, getDefaultCachePath } from "./doh/cache.js";
+} from "./pilot/installer.js";
+export type { PilotLocalStatus, CdnChecksum, InstallResult, RemoveResult, CdnSource } from "./pilot/installer-types.js";
+export { readCache as readPilotCache, getDefaultCachePath } from "./pilot/cache.js";
