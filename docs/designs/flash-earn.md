@@ -82,3 +82,13 @@ earn_get_flash_earn_projects (新增, Read)
 2. 展示项目列表，告知用户是否可申购（canPurchase 字段）
 ```
 
+---
+
+## Knowledge Updates
+
+本模块属于架构变更（earn 新增子模块），以下知识库文件需同步更新：
+
+| 文件 | 变更内容 |
+|------|---------|
+| `context-kg/business/04-earn-and-bot.md` | earn 子模块数量 4→5，新增 flash 段落，`earn.all` 扩展列表增加 `earn.flash` |
+| `context-kg/technical/01-architecture.md` | CLI 测试文件数量更新（新增 `flash-earn.test.ts`） |

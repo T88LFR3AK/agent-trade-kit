@@ -1,13 +1,15 @@
 import { createRequire } from "node:module";
 import { OkxRestClient, toToolErrorPayload, checkForUpdates, createToolRunner, allToolSpecs, TradeLogger } from "@agent-tradekit/core";
 import type { ToolRunner } from "@agent-tradekit/core";
+import { handleAuthCommand } from "./commands/auth.js";
+import { cmdDiagnose } from "./commands/diagnose.js";
 
 declare const __GIT_HASH__: string;
 
 const _require = createRequire(import.meta.url);
 const CLI_VERSION = (_require("../package.json") as { version: string }).version;
 const GIT_HASH: string = typeof __GIT_HASH__ !== "undefined" ? __GIT_HASH__ : "dev";
-import { cmdDiagnose } from "./commands/diagnose.js";
+import { unknownSubcommand } from "./unknown-command.js";
 import { cmdUpgrade } from "./commands/upgrade.js";
 import { cmdListTools } from "./commands/discovery.js";
 import {
@@ -74,6 +76,7 @@ import {
   cmdSpotAlgoOrders,
   cmdSpotAlgoTrailPlace,
   cmdSpotBatch,
+  cmdSpotSetLeverage,
 } from "./commands/spot.js";
 import {
   cmdSwapPositions,
@@ -148,6 +151,13 @@ import {
   cmdEarnLendingRateHistory,
 } from "./commands/earn.js";
 import {
+  cmdSmartmoneyOverview,
+  cmdSmartmoneySignal,
+  cmdSmartmoneySignalHistory,
+  cmdSmartmoneyTraders,
+  cmdSmartmoneyTraderDetail,
+} from "./commands/smartmoney.js";
+import {
   cmdAutoEarnStatus,
   cmdAutoEarnOn,
   cmdAutoEarnOff,
@@ -158,6 +168,7 @@ import {
   cmdGridDetails,
   cmdGridSubOrders,
   cmdGridCreate,
+  cmdGridAmend,
   cmdGridStop,
   cmdDcaCreate,
   cmdDcaStop,
@@ -191,8 +202,8 @@ import {
   cmdSkillList,
 } from "./commands/skill.js";
 import { markFailedIfSCodeError, outputLine, errorLine, setOutput, setEnvContext, setJsonEnvEnabled } from "./formatter.js";
-import { cmdDohStatus, cmdDohInstall, cmdDohRemove } from "./commands/doh.js";
-import { getDohStatus } from "@agent-tradekit/core";
+import { cmdPilotStatus, cmdPilotInstall, cmdPilotRemove } from "./commands/pilot.js";
+import { getPilotStatus } from "@agent-tradekit/core";
 import {
   cmdEventBrowse,
   cmdEventSeries,
@@ -213,17 +224,17 @@ export type { CliValues } from "./parser.js";
 // Command handlers
 // ---------------------------------------------------------------------------
 
-export function handleDohCommand(
+export function handlePilotCommand(
   action: string,
   json: boolean,
   force: boolean,
   binaryPath?: string,
 ): Promise<void> | void {
-  if (action === "status") return cmdDohStatus(json, binaryPath);
-  if (action === "install") return cmdDohInstall(json, binaryPath);
-  if (action === "remove") return cmdDohRemove(force, json, binaryPath);
-  errorLine(`Unknown doh command: ${action}`);
-  errorLine("Usage: okx doh <status|install|remove>");
+  if (action === "status") return cmdPilotStatus(json, binaryPath);
+  if (action === "install") return cmdPilotInstall(json, binaryPath);
+  if (action === "remove") return cmdPilotRemove(force, json, binaryPath);
+  errorLine(`Unknown pilot command: ${action}`);
+  errorLine("Usage: okx pilot <status|install|remove>");
   process.exitCode = 1;
 }
 
@@ -386,10 +397,16 @@ export function handleMarketCommand(
   v: CliValues,
   json: boolean
 ): Promise<void> | void {
-  return (
+  const result =
     handleMarketPublicCommand(run, action, rest, v, json) ??
-    handleMarketDataCommand(run, action, rest, v, json)
-  );
+    handleMarketDataCommand(run, action, rest, v, json);
+  if (result !== undefined) return result;
+  unknownSubcommand("market", action, [
+    "ticker", "tickers", "orderbook", "candles", "trades", "instruments",
+    "mark-price", "funding-rate", "open-interest", "index-ticker", "price-limit",
+    "stock-tokens", "instruments-by-category", "indicator", "filter",
+    "oi-history", "oi-change", "index-candles",
+  ]);
 }
 
 export function handleAccountWriteCommand(
@@ -415,6 +432,11 @@ export function handleAccountWriteCommand(
       subAcct: v.subAcct,
       json,
     });
+  unknownSubcommand("account", action, [
+    "audit", "balance", "asset-balance", "positions", "positions-history",
+    "bills", "fees", "config",
+    "set-position-mode", "max-size", "max-avail-size", "max-withdrawal", "transfer",
+  ]);
 }
 
 function handleAccountCommand(
@@ -428,7 +450,7 @@ function handleAccountCommand(
     return cmdAccountAudit({ limit: v.limit, tool: v.tool, since: v.since, json });
   const limit = v.limit !== undefined ? Number(v.limit) : undefined;
   if (action === "balance") return cmdAccountBalance(run, rest[0], json);
-  if (action === "asset-balance") return cmdAccountAssetBalance(run, v.ccy, json, v.valuation);
+  if (action === "asset-balance") return cmdAccountAssetBalance(run, v.ccy, json, v.valuation, v.valuationCcy);
   if (action === "positions")
     return cmdAccountPositions(run, { instType: v.instType, instId: v.instId, json });
   if (action === "positions-history")
@@ -507,6 +529,7 @@ export function handleSpotAlgoCommand(
       ordType: v.ordType,
       json,
     });
+  unknownSubcommand("spot algo", subAction, ["trail", "place", "amend", "cancel", "orders"]);
 }
 
 export function handleSpotCommand(
@@ -557,6 +580,19 @@ export function handleSpotCommand(
     return handleSpotAlgoCommand(run, rest[0], v, json);
   if (action === "batch")
     return cmdSpotBatch(run, { action: v.action!, orders: v.orders!, json });
+  if (action === "leverage")
+    return cmdSpotSetLeverage(run, {
+      instId: v.instId,
+      ccy: v.ccy,
+      lever: v.lever!,
+      mgnMode: v.mgnMode!,
+      json,
+    });
+  unknownSubcommand("spot", action, [
+    "orders", "get", "fills",
+    "place", "cancel", "amend",
+    "algo", "batch", "leverage",
+  ], ["algo place", "algo cancel", "algo amend", "algo trail", "algo orders"]);
 }
 
 export function handleSwapAlgoCommand(
@@ -618,6 +654,7 @@ export function handleSwapAlgoCommand(
       ordType: v.ordType,
       json,
     });
+  unknownSubcommand("swap algo", subAction, ["trail", "place", "amend", "cancel", "orders"]);
 }
 
 function handleSwapQuery(
@@ -707,6 +744,11 @@ export function handleSwapCommand(
     return handleSwapAlgoCommand(run, rest[0], v, json);
   if (action === "batch")
     return cmdSwapBatch(run, { action: v.action!, orders: v.orders!, json });
+  unknownSubcommand("swap", action, [
+    "positions", "orders", "get", "fills", "get-leverage",
+    "place", "cancel", "amend", "close", "leverage",
+    "algo", "batch",
+  ], ["algo place", "algo cancel", "algo amend", "algo trail", "algo orders"]);
 }
 
 export function handleOptionAlgoCommand(
@@ -751,6 +793,7 @@ export function handleOptionAlgoCommand(
       ordType: v.ordType,
       json,
     });
+  unknownSubcommand("option algo", subAction, ["place", "amend", "cancel", "orders"]);
 }
 
 export function handleOptionCommand(
@@ -808,6 +851,10 @@ export function handleOptionCommand(
     return cmdOptionBatchCancel(run, { orders: v.orders!, json });
   if (action === "algo")
     return handleOptionAlgoCommand(run, rest[0], v, json);
+  unknownSubcommand("option", action, [
+    "orders", "get", "positions", "fills", "instruments", "greeks",
+    "place", "cancel", "amend", "batch-cancel", "algo",
+  ], ["algo place", "algo cancel", "algo amend", "algo orders"]);
 }
 
 export function handleFuturesAlgoCommand(
@@ -869,6 +916,7 @@ export function handleFuturesAlgoCommand(
       ordType: v.ordType,
       json,
     });
+  unknownSubcommand("futures algo", subAction, ["trail", "place", "amend", "cancel", "orders"]);
 }
 
 function resolveFuturesOrdersStatus(v: CliValues): "archive" | "history" | "open" {
@@ -958,6 +1006,11 @@ export function handleFuturesCommand(
     return cmdFuturesBatch(run, { action: v.action!, orders: v.orders!, json });
   if (action === "algo")
     return handleFuturesAlgoCommand(run, rest[0], v, json);
+  unknownSubcommand("futures", action, [
+    "orders", "positions", "fills", "get", "get-leverage",
+    "place", "cancel", "amend", "close", "leverage",
+    "batch", "algo",
+  ], ["algo place", "algo cancel", "algo amend", "algo trail", "algo orders"]);
 }
 
 export function handleBotGridCommand(
@@ -1009,6 +1062,20 @@ export function handleBotGridCommand(
       algoClOrdId: v.algoClOrdId,
       json,
     });
+  if (subAction === "amend")
+    return cmdGridAmend(run, {
+      algoId: v.algoId!,
+      instId: v.instId,
+      maxPx: v.maxPx,
+      minPx: v.minPx,
+      gridNum: v.gridNum,
+      tpTriggerPx: v.tpTriggerPx,
+      slTriggerPx: v.slTriggerPx,
+      tpRatio: v.tpRatio,
+      slRatio: v.slRatio,
+      topUpAmt: v.topUpAmt,
+      json,
+    });
   if (subAction === "stop")
     return cmdGridStop(run, {
       algoId: v.algoId!,
@@ -1017,6 +1084,7 @@ export function handleBotGridCommand(
       stopType: v.stopType,
       json,
     });
+  unknownSubcommand("bot grid", subAction, ["orders", "details", "sub-orders", "create", "amend", "stop"]);
 }
 
 export function handleBotDcaCommand(
@@ -1063,6 +1131,7 @@ export function handleBotDcaCommand(
     });
   if (subAction === "stop")
     return cmdDcaStop(run, { algoId: v.algoId!, algoOrdType, stopType: v.stopType, json });
+  unknownSubcommand("bot dca", subAction, ["orders", "details", "sub-orders", "create", "stop"]);
 }
 
 export function handleBotCommand(
@@ -1074,6 +1143,7 @@ export function handleBotCommand(
 ): Promise<void> | void {
   if (action === "grid") return handleBotGridCommand(run, v, rest, json);
   if (action === "dca") return handleBotDcaCommand(run, rest[0], v, json);
+  unknownSubcommand("bot", action, ["grid", "dca"]);
 }
 
 export function handleEarnCommand(
@@ -1126,6 +1196,55 @@ function handleEarnFlashEarnCommand(
   if (action === "projects") return cmdFlashEarnProjects(run, v.status, json);
   errorLine(`Unknown flash-earn command: ${action}`);
   errorLine("Valid: projects");
+  process.exitCode = 1;
+}
+
+export function handleSmartmoneyCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  const poolFilters = {
+    sortType: v.sortType, period: v.period, pnl: v.pnl,
+    winRatio: v.winRatio, maxRetreat: v.maxRetreat, asset: v.asset,
+  };
+  if (action === "overview")
+    return cmdSmartmoneyOverview(run, {
+      dataVersion: v.dataVersion, ts: v.ts, instType: v.instType,
+      ...poolFilters, lmtNum: v.lmtNum, instCcyList: v.instCcyList,
+      instCcy: v.instCcy, topInstruments: v.topInstruments, json,
+    });
+  if (action === "signal")
+    return cmdSmartmoneySignal(run, {
+      instId: v.instId, dataVersion: v.dataVersion, ts: v.ts,
+      ...poolFilters, instCcy: v.instCcy, lmtNum: v.lmtNum,
+      authorIds: v.authorIds, json,
+    });
+  if (action === "signal-history") {
+    if (!v.instId) { errorLine("Missing required --instId: okx smartmoney signal-history --instId <id>"); process.exitCode = 1; return; }
+    return cmdSmartmoneySignalHistory(run, {
+      instId: v.instId, dataVersion: v.dataVersion, ts: v.ts,
+      granularity: v.granularity, limit: v.limit,
+      ...poolFilters, json,
+    });
+  }
+  if (action === "traders")
+    return cmdSmartmoneyTraders(run, {
+      dataVersion: v.dataVersion, ...poolFilters,
+      authorIds: v.authorIds, after: v.after, before: v.before,
+      limit: v.limit, json,
+    });
+  if (action === "trader") {
+    if (!v.authorId) { errorLine("Missing required --authorId: okx smartmoney trader --authorId <id>"); process.exitCode = 1; return; }
+    return cmdSmartmoneyTraderDetail(run, {
+      authorId: v.authorId, period: v.period,
+      instCcy: v.instCcy, tradeLimit: v.tradeLimit, json,
+    });
+  }
+  errorLine(`Unknown smartmoney command: ${action}`);
+  errorLine("Valid: overview, signal, signal-history, traders, trader");
   process.exitCode = 1;
 }
 
@@ -1343,8 +1462,18 @@ export function handleEventCommand(
     }),
     amend: () => cmdEventAmend(run, { instId: (v.instId ?? rest[0])!, ordId: (v.ordId ?? rest[1])!, px: v.px, sz: v.sz, json }),
     cancel: () => cmdEventCancel(run, { instId: (v.instId ?? rest[0])!, ordId: (v.ordId ?? rest[1])!, json }),
-    orders: () => cmdEventOrders(run, { instId: v.instId, state: v.state, limit, json }),
-    fills: () => cmdEventFills(run, { instId: v.instId, limit, json }),
+    orders: () => cmdEventOrders(run, {
+      status: v.status, instId: v.instId,
+      ordType: v.ordType, state: v.state,
+      after: v.after, before: v.before, begin: v.begin, end: v.end,
+      limit, json,
+    }),
+    fills: () => cmdEventFills(run, {
+      archive: v.archive ?? false,
+      instId: v.instId, ordId: v.ordId,
+      after: v.after, before: v.before, begin: v.begin, end: v.end,
+      limit, json,
+    }),
   };
   const handler = handlers[action];
   if (handler) return handler();
@@ -1406,9 +1535,9 @@ export function wrapRunnerWithLogger(baseRunner: ToolRunner, logger: TradeLogger
 
 // Extracted to reduce cognitive complexity of main()
 async function runDiagnose(v: ReturnType<typeof parseCli>["values"]): Promise<void> {
-  let config: ReturnType<typeof loadProfileConfig> | undefined;
+  let config: Awaited<ReturnType<typeof loadProfileConfig>> | undefined;
   try {
-    config = loadProfileConfig({ profile: v.profile, demo: v.demo, live: v.live, verbose: v.verbose, userAgent: `okx-trade-cli/${CLI_VERSION}`, sourceTag: "CLI" });
+    config = await loadProfileConfig({ profile: v.profile, demo: v.demo, live: v.live, verbose: v.verbose, userAgent: `okx-trade-cli/${CLI_VERSION}`, sourceTag: "CLI" });
   } catch {
     // Config parse failed — diagnose will detect and report it
   }
@@ -1419,11 +1548,11 @@ async function runDiagnose(v: ReturnType<typeof parseCli>["values"]): Promise<vo
 function printVersion(): void {
   outputLine(`${CLI_VERSION} (${GIT_HASH})`);
   // Use skipHash: true — only need existence/platform, not SHA-256
-  const dohStatus = getDohStatus(undefined, { skipHash: true });
-  if (dohStatus.exists) {
-    outputLine(`DoH resolver: installed (${dohStatus.platform ?? "unknown"})`);
+  const pilotStatus = getPilotStatus(undefined, { skipHash: true });
+  if (pilotStatus.exists) {
+    outputLine(`Pilot: installed (${pilotStatus.platform ?? "unknown"})`);
   } else {
-    outputLine("DoH resolver: not installed");
+    outputLine("Pilot: not installed");
   }
 }
 
@@ -1436,8 +1565,9 @@ function routeManagementCommand(
 ): Promise<void> | true | undefined {
   if (module === "config") { const r = handleConfigCommand(action as string, rest, json, v.lang, v.force); return r ?? true; }
   if (module === "setup") { handleSetupCommand(v); return true; }
+  if (module === "auth") return handleAuthCommand(action as string, rest, v);
   if (module === "upgrade") return cmdUpgrade(CLI_VERSION, { beta: v.beta, check: v.check, force: v.force }, json);
-  if (module === "doh") { const r = handleDohCommand(action as string, json, v.force ?? false); return r ?? true; }
+  if (module === "pilot") { const r = handlePilotCommand(action as string, json, v.force ?? false); return r ?? true; }
   if (module === "diagnose") return runDiagnose(v);
   if (module === "list-tools") { cmdListTools(json); return true; }
   return undefined;
@@ -1470,7 +1600,7 @@ async function main(): Promise<void> {
   const mgmt = routeManagementCommand(module, action, rest, json, v);
   if (mgmt !== undefined) return mgmt === true ? undefined : mgmt;
 
-  const config = loadProfileConfig({ profile: v.profile, demo: v.demo, live: v.live, verbose: v.verbose, userAgent: `okx-trade-cli/${CLI_VERSION}`, sourceTag: "CLI" });
+  const config = await loadProfileConfig({ profile: v.profile, demo: v.demo, live: v.live, verbose: v.verbose, userAgent: `okx-trade-cli/${CLI_VERSION}`, sourceTag: "CLI" });
   setEnvContext({ demo: config.demo, profile: v.profile ?? "default" });
   setJsonEnvEnabled(v.env ?? false);
 
@@ -1490,6 +1620,7 @@ async function main(): Promise<void> {
     news:    () => handleNewsCommand(run, action, rest, v, json),
     bot:     () => handleBotCommand(run, action, rest, v, json),
     earn:    () => handleEarnCommand(run, action, rest, v, json),
+    smartmoney: () => handleSmartmoneyCommand(run, action, rest, v, json),
     skill:   () => handleSkillCommand(run, action, rest, v, json, config),
   };
   const handler = moduleHandlers[module];

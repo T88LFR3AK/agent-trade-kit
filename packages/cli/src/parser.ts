@@ -50,12 +50,14 @@ export interface CliValues {
   slRatio?: string;
   algoClOrdId?: string;
   stopType?: string;
+  topUpAmt?: string;
   live?: boolean;
   instType?: string;
   instCategory?: string;
   quoteCcy?: string;
   archive?: boolean;
   valuation?: boolean;
+  valuationCcy?: string;
   posMode?: string;
   ccy?: string;
   from?: string;
@@ -102,6 +104,22 @@ export interface CliValues {
   // audit
   since?: string;
   tool?: string;
+  // smartmoney
+  authorId?: string;
+  authorIds?: string;
+  dataVersion?: string;
+  sortType?: string;
+  granularity?: string;
+  lmtNum?: string;
+  instCcy?: string;
+  instCcyList?: string;
+  topInstruments?: string;
+  tradeLimit?: string;
+  // smartmoney pool filters
+  pnl?: string;
+  winRatio?: string;
+  maxRetreat?: string;
+  asset?: string;
   // upgrade
   beta?: boolean;
   check?: boolean;
@@ -152,6 +170,9 @@ export interface CliValues {
   dir?: string;
   page?: string;
   format?: string;
+  // auth
+  site?: string;
+  manual?: boolean;
   // event contract
   underlying?: string;
   seriesId?: string;
@@ -246,6 +267,7 @@ export const CLI_OPTIONS = {
   slRatio: { type: "string" },
   algoClOrdId: { type: "string" },
   stopType: { type: "string" },
+  topUpAmt: { type: "string" },
   live: { type: "boolean", default: false },
   // market extras
   instType: { type: "string" },
@@ -254,6 +276,7 @@ export const CLI_OPTIONS = {
   // account extras
   archive: { type: "boolean", default: false },
   valuation: { type: "boolean", default: false },
+  valuationCcy: { type: "string" },
   posMode: { type: "string" },
   ccy: { type: "string" },
   from: { type: "string" },
@@ -302,6 +325,22 @@ export const CLI_OPTIONS = {
   // audit
   since: { type: "string" },
   tool: { type: "string" },
+  // smartmoney
+  authorId: { type: "string" },
+  authorIds: { type: "string" },
+  dataVersion: { type: "string" },
+  sortType: { type: "string" },
+  granularity: { type: "string" },
+  lmtNum: { type: "string" },
+  instCcy: { type: "string" },
+  instCcyList: { type: "string" },
+  topInstruments: { type: "string" },
+  tradeLimit: { type: "string" },
+  // smartmoney pool filters
+  pnl: { type: "string" },
+  winRatio: { type: "string" },
+  maxRetreat: { type: "string" },
+  asset: { type: "string" },
   // upgrade
   beta:  { type: "boolean", default: false },
   check: { type: "boolean", default: false },
@@ -349,6 +388,9 @@ export const CLI_OPTIONS = {
   dir: { type: "string" },
   page: { type: "string" },
   format: { type: "string" },
+  // auth
+  site: { type: "string" },
+  manual: { type: "boolean", default: false },
   // event contract
   underlying: { type: "string" },
   seriesId: { type: "string" },
