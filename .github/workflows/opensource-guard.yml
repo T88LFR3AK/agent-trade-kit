@@ -1,0 +1,19 @@
+name: Open-source Guard
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [master]
+
+jobs:
+  guard:
+    name: Block internal paths & secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run open-source guard
+        run: bash scripts/check-opensource.sh origin/master
