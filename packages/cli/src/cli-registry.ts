@@ -142,6 +142,11 @@ export const CLI_REGISTRY: CliRegistry = {
         usage: "okx market oi-change --instType <SWAP|FUTURES> [--bar <5m|15m|1H|4H|1D>] [--sortBy <oiUsd|oiDeltaUsd|oiDeltaPct|absOiDeltaPct|volUsd24h|fundingRate|last>] [--sortOrder <asc|desc>] [--limit <1-100>] [--minOiUsd <n>] [--minVolUsd24h <n>] [--minAbsOiDeltaPct <n>]",
         description: "Find instruments with largest OI changes over a bar window (accumulation/distribution scanner)",
       },
+      "pair-spread": {
+        toolName: "market_get_pair_spread",
+        usage: "okx market pair-spread <instIdA> <instIdB> [--bar <5m|15m>] [--window <window>] [--backtest-time <ms>] [--json]",
+        description: "Compute spread statistics (abs + ratio) between two instruments over a lookback window",
+      },
     },
     subgroups: {
       indicator: {
@@ -1034,6 +1039,16 @@ export const CLI_REGISTRY: CliRegistry = {
       "sentiment-rank": {
         toolName: "news_get_sentiment_ranking",
         usage: "okx news sentiment-rank [--period 24h] [--sort-by 0] [--limit 20]",
+      },
+      "economic-calendar": {
+        toolName: "news_get_economic_calendar",
+        usage: "okx news economic-calendar [--region <country>] [--importance <1|2|3>] [--before <ms>] [--after <ms>] [--limit <n>]",
+        description: "Get macro-economic calendar data (GDP, CPI, NFP, FOMC, etc.)",
+      },
+      "list-regions": {
+        toolName: "news_list_calendar_regions",
+        usage: "okx news list-regions",
+        description: "List all valid --region values for economic-calendar",
       },
     },
   },

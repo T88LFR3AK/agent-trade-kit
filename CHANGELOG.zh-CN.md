@@ -12,6 +12,40 @@
 ## [Unreleased]
 
 
+---
+
+## [1.3.5-beta.1] - 2026-05-13
+
+### 新增
+
+- **配对价差工具**（!315）。`market_get_pair_spread`。计算两个标的在回溯窗口内的价差统计（均值/标准差/中位数/最小值/最大值，绝对值和比率）。支持回测模式。CLI 命令：`okx market pair-spread`。无需凭证。
+
+> 说明：此工具曾出现在 `1.3.4-beta.2` 中，但已**不在 `v1.3.4` 稳定版 tag 内**（tag 锚定在 `cd99d487`，即 `1.3.4-beta.1` 那次 bump commit）。改由 `1.3.5-beta.1` 发布。
+
+---
+
+## [1.3.4] - 2026-05-13
+
+`1.3.4-beta.1` 整合发布。下面的 `1.3.4-beta.2` 段作为历史记录保留，但其内容（`market_get_pair_spread`）**不在 `v1.3.4` tag 中** —— 已移至 `## [1.3.5-beta.1]`。
+
+### 新增
+
+- **经济日历工具**（1.3.4-beta.1，!298）。`news_get_economic_calendar` + `news_list_calendar_regions`。可按地区/重要程度筛选并查询宏观经济事件（GDP、CPI、NFP、FOMC 等），支持自定义时间窗口。CLI 命令：`okx news economic-calendar`、`okx news list-regions`。Skill `okx-sentiment-tracker` 同步更新，新增日历使用工作流引导。
+
+---
+
+## [1.3.4-beta.2] - 2026-05-12
+
+### 新增
+
+- **配对价差工具** (`market_get_pair_spread`)。计算两个标的在回溯窗口内的价差统计（均值/标准差/中位数/最小值/最大值，绝对值和比率）。支持回测模式。CLI 命令：`okx market pair-spread`。无需凭证。
+
+## [1.3.4-beta.1] - 2026-05-12
+
+### 新增
+
+- **经济日历工具**（`news_get_economic_calendar`、`news_list_calendar_regions`）。支持查询宏观经济事件（GDP、CPI、非农、FOMC 等），可按地区、重要性筛选并控制时间窗口。CLI 命令：`okx news economic-calendar`、`okx news list-regions`。Skill `okx-sentiment-tracker` 已同步更新日历工作流引导。
+
 ## [1.3.3] - 2026-05-08
 
 `1.3.3-beta.1` → `1.3.3-beta.3` 三个 beta 版本的稳定版整合发布。完整实现细节请见下方对应 beta 段。
@@ -1072,7 +1106,7 @@ Promise.all([
 ### 新增
 
 - **DCD 模块**（`earn.dcd`）— 新增 8 个 MCP 工具和 10 个 CLI 命令，支持 OKX 双币赢（Dual Currency Deposit）：`dcd_get_currency_pairs`、`dcd_get_products`、`dcd_request_quote`、`dcd_execute_quote`、`dcd_request_redeem_quote`、`dcd_execute_redeem`、`dcd_get_order_state`、`dcd_get_orders`。CLI 命令：`okx earn dcd pairs`、`products`、`quote`、`buy`、`quote-and-buy`、`redeem-quote`、`redeem`、`redeem-execute`、`order`、`orders`。支持客户端产品筛选（`--minYield`、`--strikeNear`、`--termDays`、`--expDate`）、两步提前赎回流程，以及所有写操作的模拟盘拦截。
-- **HTTP/HTTPS 代理支持**：在 TOML Profile 中配置 `proxy_url`，所有 OKX API 请求将通过代理服务器转发。支持带认证的代理 URL（如 `http://user:pass@proxy:8080`）。仅支持 HTTP/HTTPS 代理，不支持 SOCKS。（#53）
+- **HTTP/HTTPS 代理支持**：在 TOML Profile 中配置 `proxy_url`，所有 OKX API 请求将通过代理服务器转发。支持带认证的代理 URL（如 `http://user:pass@proxy:8080`）。仅支持 HTTP/HTTPS 代理，不支持 SOCKS。(#53)
 - **CLI `--verbose` 标志**：为任意命令添加 `--verbose`，可在 stderr 查看详细的网络请求/响应信息 — 包括方法、URL、认证状态（密钥脱敏）、耗时、HTTP 状态码、OKX 错误码和 trace ID。适用于排查连接和认证问题。
 - **CLI `okx diagnose` 诊断命令**：逐步检查连通性 — 环境（Node.js、OS、shell、locale、时区、代理）、配置（凭证、站点、base URL）、网络（DNS → TCP → TLS → 公开 API）和认证。失败时给出具体建议，并在末尾输出可复制分享的诊断报告。
 - **CLI 下单命令 — 附带止盈止损**：`okx spot place`、`okx swap place`、`okx futures place` 现支持可选的止盈止损参数：`--tpTriggerPx`、`--tpOrdPx`、`--tpTriggerPxType`、`--slTriggerPx`、`--slOrdPx`、`--slTriggerPxType`。这些参数会直接作为附带 TP/SL 传递给 OKX 下单 API。

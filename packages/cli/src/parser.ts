@@ -184,6 +184,8 @@ export interface CliValues {
   params?: string;
   list?: boolean;
   "backtest-time"?: string;
+  // pair-spread
+  window?: string;
   // market candle time range
   after?: string;
   before?: string;
@@ -197,6 +199,7 @@ export interface CliValues {
   period?: string;
   points?: string;
   "sort-by"?: string;
+  region?: string;
   // skill marketplace
   categories?: string;
   dir?: string;
@@ -436,6 +439,8 @@ export const CLI_OPTIONS = {
   params: { type: "string" },
   list: { type: "boolean", default: false },
   "backtest-time": { type: "string" },
+  // pair-spread
+  window: { type: "string" },
   // news
   coins: { type: "string" },
   sentiment: { type: "string" },
@@ -446,6 +451,7 @@ export const CLI_OPTIONS = {
   period: { type: "string" },
   points: { type: "string" },
   "sort-by": { type: "string" },
+  region: { type: "string" },
   // skill marketplace
   categories: { type: "string" },
   dir: { type: "string" },
