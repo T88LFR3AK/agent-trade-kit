@@ -115,7 +115,7 @@ describe("PilotManager.preparePilot", () => {
     assert.equal(mgr.isProxyActive, true);
   });
 
-  it("is idempotent — second call does nothing", () => {
+  it("is idempotent - second call does nothing", () => {
     const mgr = new PilotManager({ baseUrl: BASE_URL });
     mgr.preparePilot();
     // Seed cache AFTER first call — should be ignored
@@ -140,7 +140,7 @@ describe("PilotManager.preparePilot", () => {
 describe("PilotManager.cacheDirectIfNeeded", () => {
   it("caches mode=direct after first successful direct connection", () => {
     const mgr = new PilotManager({ baseUrl: BASE_URL });
-    mgr.preparePilot(); // no cache → directUnverified=true
+    mgr.preparePilot(); // no cache -> directUnverified=true
 
     mgr.cacheDirectIfNeeded();
 
@@ -195,7 +195,7 @@ describe("PilotManager.handleNetworkFailure", () => {
   it("re-resolves to proxy node when direct connection fails", async () => {
     // No cache → direct first → failure → calls binary for "proxy.okx.com"
     const mgr = new PilotManager({ baseUrl: "https://proxy.okx.com" });
-    mgr.preparePilot(); // no cache → directUnverified
+    mgr.preparePilot(); // no cache -> directUnverified
 
     const shouldRetry = await mgr.handleNetworkFailure();
     assert.equal(shouldRetry, true);

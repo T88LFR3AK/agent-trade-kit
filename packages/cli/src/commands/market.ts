@@ -299,8 +299,8 @@ export async function cmdMarketIndicator(
     const values = indicators?.[apiCode] as Record<string, unknown>[] | undefined;
     if (!values?.length) continue;
 
-    process.stdout.write(`${instId} · ${apiCode} · ${tf}\n`);
-    process.stdout.write("─".repeat(40) + "\n");
+    process.stdout.write(`${instId} | ${apiCode} | ${tf}\n`);
+    process.stdout.write("-".repeat(40) + "\n");
 
     if (opts.list) {
       const tableRows = values.map((entry) => ({
@@ -338,7 +338,7 @@ export async function cmdMarketInstrumentsByCategory(
     "7": "Bonds",
   };
   const label = CATEGORY_LABELS[opts.instCategory] ?? opts.instCategory;
-  process.stdout.write(`instCategory=${opts.instCategory} (${label}) — ${items?.length ?? 0} instruments\n\n`);
+  process.stdout.write(`instCategory=${opts.instCategory} (${label}) - ${items?.length ?? 0} instruments\n\n`);
   printTable(
     (items ?? []).slice(0, 50).map((t) => ({
       instId: t["instId"],

@@ -116,7 +116,7 @@ describe("checkMcpClients", () => {
     });
   });
 
-  it("reports ✗ and fails when config file has invalid JSON (cursor)", () => {
+  it("reports failure when config file has invalid JSON (cursor)", () => {
     const report = new Report();
     const origExistsSync = fs.existsSync;
     const origReadFileSync = fs.readFileSync;
@@ -139,14 +139,14 @@ describe("checkMcpClients", () => {
         result = checkMcpClients(report);
       });
       assert.ok(!result!.configuredClients.includes("cursor"), "cursor should not be in configuredClients with bad JSON");
-      assert.ok(output.includes("✗") || output.includes("parse"), "should show error for bad JSON");
+      assert.ok(output.includes("[x]") || output.includes("parse"), "should show error for bad JSON");
     } finally {
       (fs as { existsSync: typeof fs.existsSync }).existsSync = origExistsSync;
       (fs as { readFileSync: typeof fs.readFileSync }).readFileSync = origReadFileSync;
     }
   });
 
-  it("reports ✗ and fails when config exists but okx-trade-mcp not in mcpServers (cursor)", () => {
+  it("reports failure when config exists but okx-trade-mcp not in mcpServers (cursor)", () => {
     const report = new Report();
     const origExistsSync = fs.existsSync;
     const origReadFileSync = fs.readFileSync;
@@ -170,7 +170,7 @@ describe("checkMcpClients", () => {
         result = checkMcpClients(report);
       });
       assert.ok(!result!.configuredClients.includes("cursor"), "cursor should not be configured without okx entry");
-      assert.ok(output.includes("✗") || output.includes("not found"), "should show not-found error");
+      assert.ok(output.includes("[x]") || output.includes("not found"), "should show not-found error");
     } finally {
       (fs as { existsSync: typeof fs.existsSync }).existsSync = origExistsSync;
       (fs as { readFileSync: typeof fs.readFileSync }).readFileSync = origReadFileSync;
@@ -211,7 +211,7 @@ describe("checkMcpClients", () => {
     }
   });
 
-  it("shows ✓ found when client is configured", () => {
+  it("shows found when client is configured", () => {
     const report = new Report();
     const origExistsSync = fs.existsSync;
     const origReadFileSync = fs.readFileSync;
@@ -237,7 +237,7 @@ describe("checkMcpClients", () => {
       const output = captureStdoutSync(() => {
         checkMcpClients(report);
       });
-      assert.ok(output.includes("✓"), "should show checkmark when client is configured");
+      assert.ok(output.includes("[ok]"), "should show checkmark when client is configured");
     } finally {
       (fs as { existsSync: typeof fs.existsSync }).existsSync = origExistsSync;
       (fs as { readFileSync: typeof fs.readFileSync }).readFileSync = origReadFileSync;
@@ -283,7 +283,7 @@ describe("checkToolCount", () => {
     // Tool count > 40 triggers a warning; either way, output includes tool info
     assert.ok(output.includes("Tool Count"), "should show tool count section");
     assert.ok(
-      output.includes("tools") || output.includes("⚠") || output.includes("✓"),
+      output.includes("tools") || output.includes("⚠") || output.includes("[ok]"),
       "should show tool count result",
     );
   });

@@ -14,14 +14,14 @@ export function readCliVersion(): string {
     try {
       return (_require(rel) as { version: string }).version;
     } catch (_err: unknown) {
-      // Path not found in this layout (bundled vs source) — try next
+      // Path not found in this layout (bundled vs source) - try next
     }
   }
   return "0.0.0";
 }
 
 // ---------------------------------------------------------------------------
-// Report collector — accumulates raw data for the copy-paste block
+// Report collector - accumulates raw data for the copy-paste block
 // ---------------------------------------------------------------------------
 
 export interface ReportLine { key: string; value: string }
@@ -34,9 +34,9 @@ export class Report {
   }
 
   print(): void {
-    const sep = "\u2500".repeat(52);
+    const sep = "─".repeat(52);
     outputLine("");
-    outputLine(`  \u2500\u2500 Diagnostic Report (copy & share) ${sep.slice(35)}`);
+    outputLine(`  ── Diagnostic Report (copy & share) ${sep.slice(35)}`);
     for (const { key, value } of this.lines) {
       outputLine(`  ${key.padEnd(14)} ${value}`);
     }
@@ -47,9 +47,9 @@ export class Report {
   /** Write report to a file path, returns true on success. */
   writeToFile(filePath: string): boolean {
     try {
-      const sep = "-".repeat(52);
+      const sep = "─".repeat(52);
       const lines: string[] = [
-        `-- Diagnostic Report (copy & share) ${sep.slice(35)}`,
+        `── Diagnostic Report (copy & share) ${sep.slice(35)}`,
       ];
       for (const { key, value } of this.lines) {
         lines.push(`${key.padEnd(14)} ${value}`);
@@ -68,20 +68,20 @@ export class Report {
 // ---------------------------------------------------------------------------
 
 export function ok(label: string, detail: string): void {
-  outputLine(`  \u2713 ${label.padEnd(14)} ${detail}`);
+  outputLine(`  [ok]   ${label.padEnd(14)} ${detail}`);
 }
 
 export function fail(label: string, detail: string, hints: string[]): void {
-  outputLine(`  \u2717 ${label.padEnd(14)} ${detail}`);
+  outputLine(`  [x]    ${label.padEnd(14)} ${detail}`);
   for (const hint of hints) {
-    outputLine(`    \u2192 ${hint}`);
+    outputLine(`    → ${hint}`);
   }
 }
 
 export function warn(label: string, detail: string, hints: string[] = []): void {
-  outputLine(`  \u26a0 ${label.padEnd(14)} ${detail}`);
+  outputLine(`  ⚠ ${label.padEnd(14)} ${detail}`);
   for (const hint of hints) {
-    outputLine(`    \u2192 ${hint}`);
+    outputLine(`    → ${hint}`);
   }
 }
 
@@ -91,7 +91,7 @@ export function section(title: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Output file helper — shared between diagnose.ts and diagnose-mcp.ts
+// Output file helper - shared between diagnose.ts and diagnose-mcp.ts
 // ---------------------------------------------------------------------------
 
 export function writeReportIfRequested(report: Report, outputPath?: string): void {
@@ -105,7 +105,7 @@ export function writeReportIfRequested(report: Report, outputPath?: string): voi
 }
 
 // ---------------------------------------------------------------------------
-// Sanitization — strip secrets / long hex / UUIDs before sharing
+// Sanitization - strip secrets / long hex / UUIDs before sharing
 // ---------------------------------------------------------------------------
 
 export function sanitize(value: string): string {
@@ -114,7 +114,7 @@ export function sanitize(value: string): string {
     /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
     "****-uuid-****",
   );
-  // Long hex strings (32+ chars) — likely keys/tokens
+  // Long hex strings (32+ chars) - likely keys/tokens
   value = value.replace(/\b[0-9a-f]{32,}\b/gi, "****hex****");
   // Bearer/token patterns
   value = value.replace(/Bearer\s+\S{8,}/gi, "Bearer ****");

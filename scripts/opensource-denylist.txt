@@ -16,6 +16,7 @@ path:^memory/
 path:^aTempFiles/
 path:^context-kg/
 path:^docs/superpowers/
+path:^eval/
 path:^CLAUDE\.md$
 path:(^|/)CLAUDE\.md$
 path:(^|/)internal/

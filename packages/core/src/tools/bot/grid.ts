@@ -261,8 +261,8 @@ export function registerGridTools(): ToolSpec[] {
         "update take-profit and/or stop-loss. Pass '-1' to explicitly clear an existing TP or SL. " +
         "tpTriggerPx/slTriggerPx are absolute prices; tpRatio/slRatio are profit ratios (e.g. '0.1' = 10%).\n" +
         "When both sets of params are provided, both APIs are called sequentially.\n" +
-        "Do NOT use to create a new grid bot — use grid_create_order instead. " +
-        "Do NOT use to stop a grid bot — use grid_stop_order instead.",
+        "Do NOT use to create a new grid bot - use grid_create_order instead. " +
+        "Do NOT use to stop a grid bot - use grid_stop_order instead.",
       isWrite: true,
       inputSchema: {
         type: "object",
@@ -355,7 +355,7 @@ export function registerGridTools(): ToolSpec[] {
               maxPx,
               minPx:       requireString(args, "minPx"),
               gridNum:     requireString(args, "gridNum"),
-              // API field is "topupAmount" (lowercase u) — different from TP/SL mode's "topUpAmt"
+              // API field is "topupAmount" (lowercase u) - different from TP/SL mode's "topUpAmt"
               // Contract grid only; omitting lets the API use the minimum required
               topupAmount: readString(args, "topUpAmt"),
             }),
@@ -376,7 +376,7 @@ export function registerGridTools(): ToolSpec[] {
                 slTriggerPx: readString(args, "slTriggerPx"),
                 tpRatio: readString(args, "tpRatio"),
                 slRatio: readString(args, "slRatio"),
-                topUpAmt: readString(args, "topUpAmt"), // API field is "topUpAmt" (uppercase U) — different from price-range mode's "topupAmount"
+                topUpAmt: readString(args, "topUpAmt"), // API field is "topUpAmt" (uppercase U) - different from price-range mode's "topupAmount"
               }),
               privateRateLimit("grid_amend_order", 20),
               true, // retryOnNetworkError: amend sets fixed values, safe to retry
@@ -402,11 +402,14 @@ export function registerGridTools(): ToolSpec[] {
       name: "grid_stop_order",
       module: "bot.grid",
       description:
-        "Stop a running grid bot. [CAUTION] This stops the strategy and handles open orders/positions " +
-        "according to stopType. Default (stopType='1') closes all positions immediately — use this for " +
-        "a clean exit. stopType='2' stops the strategy without selling: " +
-        "spot grid keeps all base assets as-is (no sell-back to quote); " +
-        "contract grid cancels all grid orders but leaves the position open for manual close later.",
+        "[CAUTION] Stop a grid bot or close its remaining open position — real trades, irreversible. " +
+        "Workflow: " +
+        "(1) If the user has not specified which bot to stop, call grid_get_orders first and ask the user to confirm which bot before proceeding. " +
+        "(2) Call grid_get_order_details to check the current 'state' field. " +
+        "(3) If state='running' → call this tool: " +
+        "stopType='1' (default, clean exit) — spot grid sells all base assets back to quote; contract grid market-closes all positions. " +
+        "stopType='2' (keep assets) — spot grid keeps base assets as-is; contract grid cancels grid orders but leaves the position open. " +
+        "(4) If state='no_close_position' → call this tool with stopType='1' to close the remaining open position.",
       isWrite: true,
       inputSchema: {
         type: "object",
@@ -422,9 +425,9 @@ export function registerGridTools(): ToolSpec[] {
             type: "string",
             enum: ["1", "2"],
             description:
-              "'1' (default): stop strategy and sell — spot grid sells all base assets back to quote; " +
+              "'1' (default): stop strategy and sell - spot grid sells all base assets back to quote; " +
               "contract grid market-closes all positions. " +
-              "'2': stop strategy without selling — spot grid keeps base assets as-is; " +
+              "'2': stop strategy without selling - spot grid keeps base assets as-is; " +
               "contract grid cancels all grid orders but leaves the position open. " +
               "After stopType='2', the remaining position can be closed manually from the Positions page.",
           },
@@ -442,7 +445,7 @@ export function registerGridTools(): ToolSpec[] {
             stopType: readString(args, "stopType") ?? "1",
           })],
           privateRateLimit("grid_stop_order", 20),
-          true, // retryOnNetworkError: safe to retry — already-stopped returns an error but does not harm state
+          true, // retryOnNetworkError: safe to retry - already-stopped returns an error but does not harm state
         );
         return normalizeWrite(response);
       },
