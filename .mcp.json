@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "okx-trade-mcp": {
+      "type": "stdio",
+      "command": "okx-trade-mcp",
+      "args": [
+        "--modules",
+        "all"
+      ]
+    }
+  }
+}
