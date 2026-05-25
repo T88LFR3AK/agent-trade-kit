@@ -1,5 +1,6 @@
 # OKX CLI 配置文件
 # 复制到 ~/.okx/config.toml 并填入你的 API 凭证
+# NEVER commit ~/.okx/config.toml or paste real keys into this repository.
 #
 # 凭证申请：OKX 官网 → API → 创建 API Key
 # 模拟盘：OKX 官网 → 交易 → 模拟交易 → API 管理

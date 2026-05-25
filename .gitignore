@@ -28,6 +28,9 @@ npm-debug.log*
 # Environment / credentials
 .env
 .env.local
+# OKX API keys belong only in ~/.okx/config.toml (never commit)
+config.toml
+.okx/
 
 # Internal / not for open source
 sonar-project.properties

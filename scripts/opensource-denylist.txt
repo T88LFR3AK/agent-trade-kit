@@ -38,6 +38,12 @@ regex:\[TRDATA-[0-9]+\]
 regex:\[OKG-[0-9]+\]
 regex:\[ALGO-[0-9]+\]
 
+# ----- OKX credentials (must stay in ~/.okx/config.toml only) -----
+path:^config\.toml$
+path:^\.okx/
+regex:api_key = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+regex:secret_key = "[A-F0-9]{32}"
+
 # ----- Common secret patterns -----
 regex:glpat-[A-Za-z0-9_-]{20,}
 regex:ghp_[A-Za-z0-9]{30,}
